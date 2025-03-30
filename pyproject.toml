@@ -1,0 +1,102 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rubin_nights"
+description = "Tools to access Rubin nightly observing data"
+readme = "README.md"
+license = { text = "GPL" }
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Astronomy",
+ ]
+urls = {documentation = "https://rubin-nights.lsst.io", repository = "https://github.com/lsst-sims/rubin_nights" }
+dynamic = [ "version" ]
+dependencies = [
+    "numpy",
+    "pandas",
+    "requests",
+    "pyvo",
+    "astropy-base"
+]
+
+[project.optional-dependencies]
+test = [
+     "pytest",
+     "black>=25",
+     "ruff",
+     "isort",
+     "pytest-cov",
+]
+dev = [
+  "documenteer[guide]",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "setuptools_scm.get_version" }
+
+[tool.setuptools.packages.find]
+where = [ "" ]
+
+[tool.pytest.ini_options]
+addopts = "--ignore-glob=*/version.py --ignore-glob=*data_dir/*"
+
+[tool.mypy]
+disallow_untyped_defs = "True"
+ignore_missing_imports = "True"
+
+[tool.black]
+line-length = 110
+target-version = ["py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 110
+
+[tool.ruff]
+exclude = [
+    "__init__.py",
+]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+ignore = [
+    "N802",
+    "N803",
+    "N806",
+    "N812",
+    "N815",
+    "N816",
+    "N999",
+    "D107",
+    "D105",
+    "D102",
+    "D104",
+    "D100",
+    "D200",
+    "D205",
+    "D400",
+    "E712",
+]
+select = [
+    "E",  # pycodestyle
+    "F",  # pyflakes
+    "N",  # pep8-naming
+    "W",  # pycodestyle
+]
+extend-select = [
+    "RUF100", # Warn about unused noqa
+]
+
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 79
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"

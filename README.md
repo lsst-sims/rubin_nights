@@ -1,2 +1,2 @@
 # rubin_nights
-Accessing some Rubin nightly data
+Tools for accessing Rubin data relevant for nightly visit investigations.
