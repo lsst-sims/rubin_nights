@@ -23,7 +23,7 @@ dependencies = [
     "pandas",
     "requests",
     "pyvo",
-    "astropy-base"
+    "astropy"
 ]
 
 [project.optional-dependencies]
