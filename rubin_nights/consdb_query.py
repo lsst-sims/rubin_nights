@@ -6,7 +6,6 @@ import httpx
 import numpy as np
 import pandas as pd
 import pyvo
-from astroplan import Observer
 from astropy.time import Time
 
 try:
@@ -125,10 +124,8 @@ class ConsDb:
             # Add in physical rotator angle, parallactic angle
             # (these will be added by ConsDB in the future
             lsst_loc = Site("LSST")
-            observer = Observer(lsst_loc.to_earth_location())
-            lst = observer.local_sidereal_time(
-                Time(visits["obs_start_mjd"], format="mjd", scale="tai"), "mean"
-            ).deg
+            times = Time(visits["obs_start_mjd"], format="mjd", scale="tai", location=lsst_loc)
+            lst = times.sidereal_time("mean").deg
             visits["lst"] = lst
             visits["HA"] = (visits["s_ra"] - lst) / 360 * 12 % 24
 

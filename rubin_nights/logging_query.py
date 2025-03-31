@@ -8,7 +8,6 @@ import httpx
 import numpy as np
 import pandas as pd
 from astropy.time import Time, TimeDelta
-from IPython.display import Markdown, display
 
 __all__ = ["LoggingServiceClient", "NightReportClient", "ExposureLogClient"]
 
@@ -146,22 +145,36 @@ class NightReportClient(LoggingServiceClient):
             log = night_reports[0]
         else:
             log = night_reports
-
-        display(Markdown(f"Observing crew : {log['observers_crew']}"))
-        night_plan_block = "BLOCK" + urlparse(log["confluence_url"]).fragment.split("BLOCK")[-1]
-        if night_plan_block == "BLOCK":
-            night_plan_block = log["confluence_url"]
-        url = log["confluence_url"]
-        display(
-            Markdown(
-                f'Night plan : <a href="{url}" target="_blank" rel="noreferrer noopener">'
-                f"{night_plan_block}</a>"
+        try:
+            from IPython.display import Markdown, display
+            display(Markdown(f"Observing crew : {log['observers_crew']}"))
+            night_plan_block = "BLOCK" + urlparse(log["confluence_url"]).fragment.split("BLOCK")[-1]
+            if night_plan_block == "BLOCK":
+                night_plan_block = log["confluence_url"]
+            url = log["confluence_url"]
+            display(
+                Markdown(
+                    f'Night plan : <a href="{url}" target="_blank" rel="noreferrer noopener">'
+                    f"{night_plan_block}</a>"
+                )
             )
-        )
-        display(Markdown("<strong>Summary</strong>"))
-        display(Markdown(log["summary"]))
-        display(Markdown("<strong>Status</strong>"))
-        display(Markdown(log["telescope_status"]))
+            display(Markdown("<strong>Summary</strong>"))
+            display(Markdown(log["summary"]))
+            display(Markdown("<strong>Status</strong>"))
+            display(Markdown(log["telescope_status"]))
+        except ModuleNotFoundError:
+            print(f"Observing crew : {log['observers_crew']}")
+            night_plan_block = "BLOCK" + urlparse(log["confluence_url"]).fragment.split("BLOCK")[-1]
+            if night_plan_block == "BLOCK":
+                night_plan_block = log["confluence_url"]
+            url = log["confluence_url"]
+            print(f'Night plan : <a href="{url}" target="_blank" rel="noreferrer noopener">'
+                    f"{night_plan_block}</a>"
+                )
+            print("Summary:")
+            print(log["summary"])
+            print("Status:")
+            print(log["telescope_status"])
 
 
 class NarrativeLogClient(LoggingServiceClient):

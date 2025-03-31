@@ -19,11 +19,11 @@ classifiers = [
 urls = {documentation = "https://rubin-nights.lsst.io", repository = "https://github.com/lsst-sims/rubin_nights" }
 dynamic = [ "version" ]
 dependencies = [
+    "astropy",
+    "httpx",
     "numpy",
     "pandas",
-    "requests",
     "pyvo",
-    "astropy"
 ]
 
 [project.optional-dependencies]
