@@ -147,6 +147,7 @@ class NightReportClient(LoggingServiceClient):
             log = night_reports
         try:
             from IPython.display import Markdown, display
+
             display(Markdown(f"Observing crew : {log['observers_crew']}"))
             night_plan_block = "BLOCK" + urlparse(log["confluence_url"]).fragment.split("BLOCK")[-1]
             if night_plan_block == "BLOCK":
@@ -168,9 +169,10 @@ class NightReportClient(LoggingServiceClient):
             if night_plan_block == "BLOCK":
                 night_plan_block = log["confluence_url"]
             url = log["confluence_url"]
-            print(f'Night plan : <a href="{url}" target="_blank" rel="noreferrer noopener">'
-                    f"{night_plan_block}</a>"
-                )
+            print(
+                f'Night plan : <a href="{url}" target="_blank" rel="noreferrer noopener">'
+                f"{night_plan_block}</a>"
+            )
             print("Summary:")
             print(log["summary"])
             print("Status:")
@@ -246,10 +248,18 @@ class NarrativeLogClient(LoggingServiceClient):
 
             # join log components for compactness
             def clarify_log(x, column):
-                if x[column].values() is None:
-                    component = "Log"
+                if column == "components_json":
+                    if x[column] is None:
+                        component = "Log"
+                    elif x[column].values() is None:
+                        component = "Log"
+                    else:
+                        component = "Log " + " ".join(x[column].values())
                 else:
-                    component = "Log " + " ".join(x[column].values())
+                    if x[column] is None:
+                        component = "Log"
+                    else:
+                        component = "Log " + " ".join(x[column])
                 return component
 
             # Strip excessive \r\n and \n\n from messages

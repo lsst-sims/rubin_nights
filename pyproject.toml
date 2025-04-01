@@ -61,7 +61,7 @@ line_length = 110
 
 [tool.ruff]
 exclude = [
-    "__init__.py",
+    "__init__.py", "notebooks",
 ]
 line-length = 110
 target-version = "py312"

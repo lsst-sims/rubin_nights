@@ -6,106 +6,9 @@ from astropy.time import Time
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["EfdQueryClient", "build_influxdb_query", "build_influxdb_top_n_query"]
-
-
-def build_influxdb_query(
-    measurement: str,
-    fields: list[str] | None = None,
-    time_range: tuple[Time, Time] | None = None,
-    filters: list[tuple[str, str]] | None = None,
-) -> str:
-    """Build an influx DB query.
-
-    Parameters
-    ----------
-    measurement : `str`
-        The name of the topic / measurement.
-    fields : `list` [`str`] or None
-        List of fields to return from the topic.
-        Default None uses `*` (all fields).
-    time_range : `tuple` (`Time`, `Time`) or None
-        The time window (in astropy.time.Time) to query.
-    filters : `list` (`str`, `str`) or None
-        The additional conditions to match for the query.
-        e.g. ('salIndex', 1) would add salIndex=1 to the query.
-
-    Returns
-    -------
-    query : `str`
-    """
-    if isinstance(fields, str):
-        fields = [fields]
-    fields = ", ".join(fields) if fields else "*"
-
-    query = f'SELECT {fields} FROM "{measurement}"'
-
-    conditions = []
-
-    if time_range:
-        t_start, t_end = time_range
-        conditions.append(f"time >= '{t_start.utc.isot}Z' AND time <= '{t_end.utc.isot}Z'")
-
-    if filters:
-        for key, value in filters:
-            conditions.append(f"{key} = {value}")
-
-    if conditions:
-        query += " WHERE " + " AND ".join(conditions)
-
-    return query
-
-
-def build_influxdb_top_n_query(
-    measurement: str,
-    fields: list[str] | None = None,
-    num: int = 10,
-    time_cut: Time | None = None,
-    filters: list[tuple[str, str]] | None = None,
-) -> str:
-    """Build an influx DB query.
-
-    Parameters
-    ----------
-    measurement : `str`
-        The name of the topic / measurement.
-    fields : `list` [`str`] or None
-        List of fields to return from the topic.
-        Default None uses `*` (all fields).
-    num : `int`
-        The maximum number of records to return.
-    time_cut : `Time` or None
-        Search for only records at or before this time.
-    filters : `list` (`str`, `str`) or None
-        The additional conditions to match for the query.
-        e.g. ('salIndex', 1) would add salIndex=1 to the query.
-
-    Returns
-    -------
-    query : `str`
-    """
-    if isinstance(fields, str):
-        fields = [fields]
-    fields = ", ".join(fields) if fields else "*"
-
-    query = f'SELECT {fields} FROM "{measurement}"'
-
-    conditions = []
-
-    if time_cut:
-        conditions.append(f"time <= '{time_cut.utc.isot}Z'")
-
-    if filters:
-        for key, value in filters:
-            conditions.append(f"{key} = {value}")
-
-    if conditions:
-        query += " WHERE " + " AND ".join(conditions)
-
-    limit = f" GROUP BY * ORDER BY DESC LIMIT {num}"
-    query += limit
-
-    return query
+__all__ = [
+    "EfdQueryClient",
+]
 
 
 class EfdQueryClient:
@@ -167,7 +70,7 @@ class EfdQueryClient:
             if self.results_as_dataframe:
                 result = pd.DataFrame(result)
         if len(result) == 0:
-            logging.warning(f"Query {query} produced no results.")
+            logging.debug(f"Query {query} produced no results.")
 
         return result
 
@@ -199,6 +102,110 @@ class EfdQueryClient:
             result.name = series["name"]
         return result
 
+    def get_topics(self):
+        """Find all available topics."""
+        topics = self.query("show measurements")["name"].to_list()
+        return topics
+
+    @staticmethod
+    def build_influxdb_query(
+        measurement: str,
+        fields: list[str] | None = None,
+        time_range: tuple[Time, Time] | None = None,
+        filters: list[tuple[str, str]] | None = None,
+    ) -> str:
+        """Build an influx DB query.
+
+        Parameters
+        ----------
+        measurement : `str`
+            The name of the topic / measurement.
+        fields : `list` [`str`] or None
+            List of fields to return from the topic.
+            Default None uses `*` (all fields).
+        time_range : `tuple` (`Time`, `Time`) or None
+            The time window (in astropy.time.Time) to query.
+        filters : `list` (`str`, `str`) or None
+            The additional conditions to match for the query.
+            e.g. ('salIndex', 1) would add salIndex=1 to the query.
+
+        Returns
+        -------
+        query : `str`
+        """
+        if isinstance(fields, str):
+            fields = [fields]
+        fields = ", ".join(fields) if fields else "*"
+
+        query = f'SELECT {fields} FROM "{measurement}"'
+
+        conditions = []
+
+        if time_range:
+            t_start, t_end = time_range
+            conditions.append(f"time >= '{t_start.utc.isot}Z' AND time <= '{t_end.utc.isot}Z'")
+
+        if filters:
+            for key, value in filters:
+                conditions.append(f"{key} = {value}")
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        return query
+
+    @staticmethod
+    def build_influxdb_top_n_query(
+        measurement: str,
+        fields: list[str] | None = None,
+        num: int = 10,
+        time_cut: Time | None = None,
+        filters: list[tuple[str, str]] | None = None,
+    ) -> str:
+        """Build an influx DB query.
+
+        Parameters
+        ----------
+        measurement : `str`
+            The name of the topic / measurement.
+        fields : `list` [`str`] or None
+            List of fields to return from the topic.
+            Default None uses `*` (all fields).
+        num : `int`
+            The maximum number of records to return.
+        time_cut : `Time` or None
+            Search for only records at or before this time.
+        filters : `list` (`str`, `str`) or None
+            The additional conditions to match for the query.
+            e.g. ('salIndex', 1) would add salIndex=1 to the query.
+
+        Returns
+        -------
+        query : `str`
+        """
+        if isinstance(fields, str):
+            fields = [fields]
+        fields = ", ".join(fields) if fields else "*"
+
+        query = f'SELECT {fields} FROM "{measurement}"'
+
+        conditions = []
+
+        if time_cut:
+            conditions.append(f"time <= '{time_cut.utc.isot}Z'")
+
+        if filters:
+            for key, value in filters:
+                conditions.append(f"{key} = {value}")
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        limit = f" GROUP BY * ORDER BY DESC LIMIT {num}"
+        query += limit
+
+        return query
+
     def select_time_series(
         self,
         topic_name,
@@ -211,7 +218,9 @@ class EfdQueryClient:
             filters = [("salIndex", index)]
         else:
             filters = None
-        query = build_influxdb_query(topic_name, fields=fields, time_range=(t_start, t_end), filters=filters)
+        query = self.build_influxdb_query(
+            topic_name, fields=fields, time_range=(t_start, t_end), filters=filters
+        )
         return self.query(query)
 
     def select_top_n(self, topic_name, fields, num, time_cut=None, index=None):
@@ -219,7 +228,7 @@ class EfdQueryClient:
             filters = [("salIndex", index)]
         else:
             filters = None
-        query = build_influxdb_top_n_query(
+        query = self.build_influxdb_top_n_query(
             topic_name, fields=fields, num=num, time_cut=time_cut, filters=filters
         )
         return self.query(query)

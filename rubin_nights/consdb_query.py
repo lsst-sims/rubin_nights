@@ -124,7 +124,9 @@ class ConsDb:
             # Add in physical rotator angle, parallactic angle
             # (these will be added by ConsDB in the future
             lsst_loc = Site("LSST")
-            times = Time(visits["obs_start_mjd"], format="mjd", scale="tai", location=lsst_loc)
+            times = Time(
+                visits["obs_start_mjd"], format="mjd", scale="tai", location=lsst_loc.to_earth_location()
+            )
             lst = times.sidereal_time("mean").deg
             visits["lst"] = lst
             visits["HA"] = (visits["s_ra"] - lst) / 360 * 12 % 24
