@@ -792,7 +792,7 @@ def get_exposure_info(
 
 
 def get_consolidated_messages(
-    t_start: Time, t_end: Time, token_file: str | None = None, site: str | None = None
+    t_start: Time, t_end: Time, tokenfile: str | None = None, site: str | None = None
 ) -> tuple[pd.DataFrame, list[str]]:
     """Get consolidated messages from EFD ScriptQueue, errorCodes,
     CCCamera, exposure and narrative logs.
@@ -803,7 +803,7 @@ def get_consolidated_messages(
         Time of the start of the messages.
     t_end : `astropy.Time`
         Time of the end of the messages.
-    token_file : `str` or None
+    tokenfile : `str` or None
         RSP token file. Default None.
     site : `str` or None
         The service site to choose. Default will use usdf-rsp.
@@ -815,7 +815,7 @@ def get_consolidated_messages(
     cols: `list` [`str`]
         The short-list of columns for display in the table.
     """
-    endpoints = get_clients(token_file=token_file, site=site)
+    endpoints = get_clients(tokenfile=tokenfile, site=site)
     logging.info(endpoints)
 
     # Consolidating the information from the various sources requires

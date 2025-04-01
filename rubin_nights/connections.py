@@ -10,12 +10,12 @@ from .logging_query import ExposureLogClient, NarrativeLogClient, NightReportCli
 __all__ = ["get_access_token", "get_clients"]
 
 
-def get_access_token(token_file: str | None = None) -> str:
+def get_access_token(tokenfile: str | None = None) -> str:
     """Retrieve RSP access token.
 
     Parameters
     ----------
-    token_file : `str` or None
+    tokenfile : `str` or None
         Path to token file.
         Default None will fall back to environment variable,
         ACCESS_TOKEN and then try lsst.rsp.get_access_token().
@@ -25,28 +25,31 @@ def get_access_token(token_file: str | None = None) -> str:
     token : `str`
         Token value.
     """
-    if token_file is not None:
-        with open(token_file, "r") as f:
-            token = f.read()
-    else:
-        token = os.environ.get("ACCESS_TOKEN")
-    if token is None:
-        try:
-            import lsst.rsp.get_access_token as rsp_get_access_token
+    try:
+        # Try using lsst-rsp first
+        import lsst.rsp.get_access_token as rsp_get_access_token
 
-            token = rsp_get_access_token()
-        except ImportError:
-            pass
-        warnings.warn("No RSP token available.")
+        token = rsp_get_access_token(tokenfile=tokenfile)
+    except ImportError:
+        # No lsst-rsp available
+        if tokenfile is not None:
+            with open(tokenfile, "r") as f:
+                token = f.read().strip()
+        else:
+            token = os.environ.get("ACCESS_TOKEN")
+
+    if token is None:
+        logging.warning("No RSP token available.")
+        token = ""
     return token
 
 
-def get_clients(token_file: str | None = None, site: str | None = None) -> dict:
+def get_clients(tokenfile: str | None = None, site: str | None = None) -> dict:
     """Return site-specific client connections.
 
     Parameters
     ----------
-    token_file : `str` or None
+    tokenfile : `str` or None
         Passed to `get_access_token`.
     site : `str` or None
         Override site location to a preferred site.
@@ -67,7 +70,7 @@ def get_clients(token_file: str | None = None, site: str | None = None) -> dict:
     https://nb.lsst.io/environment/tokens.html
     """
     # Set up authentication
-    token = get_access_token(token_file)
+    token = get_access_token(tokenfile)
     auth = ("user", token)
     # For more information on rubin tokens see DMTN-234.
     # For information on scopes, see DMTN-235.
