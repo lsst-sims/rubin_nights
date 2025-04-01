@@ -1,0 +1,6 @@
+astropy-base
+httpx
+numpy
+pandas
+pyvo
+lsst-ts-xml
