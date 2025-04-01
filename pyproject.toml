@@ -24,6 +24,7 @@ dependencies = [
     "numpy",
     "pandas",
     "pyvo",
+    "ts_xml@git+https://github.com/lsst-ts/ts_xml.git"
 ]
 
 [project.optional-dependencies]
