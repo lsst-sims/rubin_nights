@@ -151,7 +151,10 @@ def get_scheduler_configs(
 
     # Reconfigure output to fit into script_status fields
     deps["classname"] = "Scheduler dependencies"
-    deps["description"] = f"{deps['scheduler'].values[0]} {deps['seeingModel'].values[0]}"
+    # FBS version information isn't propagated - use seeingModel
+    def fbs_version(x):
+        return f"{x.scheduler} {x.seeingModel}"
+    deps['description'] = deps.apply(fbs_version, axis=1)
     models = [c for c in deps.columns if "observatory" in c or "Model" in c]
 
     def build_compact_config_string(x, models):
