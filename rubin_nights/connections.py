@@ -1,7 +1,7 @@
 """Connection utilities."""
 
 import os
-import warnings
+import logging
 
 from .consdb_query import ConsDbFast, ConsDbTap
 from .influx_query import EfdQueryClient
@@ -9,6 +9,7 @@ from .logging_query import ExposureLogClient, NarrativeLogClient, NightReportCli
 
 __all__ = ["get_access_token", "get_clients"]
 
+logger = logging.getLogger(__name__)
 
 def get_access_token(tokenfile: str | None = None) -> str:
     """Retrieve RSP access token.
