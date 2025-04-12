@@ -702,6 +702,24 @@ def get_exposure_info(
     narrative_and_errors : `pd.DataFrame`
     """
     # Find exposure information - Simonyi Tel
+    topic = 'lsst.sal.MTCamera.logevent_endOfImageTelemetry'
+    fields = ['imageName', 'imageIndex', 'exposureTime', 'darkTime', 'measuredShutterOpenTime',
+              'additionalValues', 'timestampAcquisitionStart', 'timestampDateEnd', 'timestampDateObs']
+    image_acquisition_mt = efd_client.select_time_series(topic, fields, t_start, t_end)
+    # If there were zero images in this timeperiod, just return now.
+    if len(image_acquisition_mt) > 0:
+        for col in [c for c in image_acquisition_mt.columns if c.startswith("timestamp")]:
+            image_acquisition_mt[col] = Time(image_acquisition_mt[col], format='unix_tai').utc.datetime
+        image_acquisition_mt['salIndex'] = 5
+        image_acquisition_mt['script_salIndex'] = 0
+        image_acquisition_mt['finalStatus'] = "Image Acquired"
+        def make_config_col_for_image(x):
+            return f"exp {x.exposureTime} // dark {x.darkTime} // open {x.measuredShutterOpenTime} "
+        image_acquisition_mt['config'] = image_acquisition_mt.apply(make_config_col_for_image, axis=1)
+        image_acquisition_mt.index = image_acquisition_mt['timestampAcquisitionStart'].copy()
+        image_acquisition_mt.index = image_acquisition_mt.index.tz_localize("UTC")
+        print(f"Found {len(image_acquisition_mt)} image times for MTCamera Simonyi")
+
     topic = "lsst.sal.CCCamera.logevent_endOfImageTelemetry"
     fields = [
         "imageName",
@@ -729,7 +747,7 @@ def get_exposure_info(
         image_acquisition_cc["config"] = image_acquisition_cc.apply(make_config_col_for_image, axis=1)
         image_acquisition_cc.index = image_acquisition_cc["timestampAcquisitionStart"].copy()
         image_acquisition_cc.index = image_acquisition_cc.index.tz_localize("UTC")
-        logging.info(f"Found {len(image_acquisition_cc)} image times for Simonyi")
+        logging.info(f"Found {len(image_acquisition_cc)} image times for CCCamera Simonyi")
 
     # Find exposure information - Aux Tel
     topic = "lsst.sal.ATCamera.logevent_endOfImageTelemetry"
@@ -760,7 +778,7 @@ def get_exposure_info(
         image_acquisition_at["config"] = image_acquisition_at.apply(make_config_col_for_image, axis=1)
         image_acquisition_at.index = image_acquisition_at["timestampAcquisitionStart"].copy()
         image_acquisition_at.index = image_acquisition_at.index.tz_localize("UTC")
-        logging.info(f"Found {len(image_acquisition_at)} image times for AuxTel")
+        logging.info(f"Found {len(image_acquisition_at)} image times for ATCamera AuxTel")
 
     image_acquisition = pd.concat([image_acquisition_cc, image_acquisition_at])
 
