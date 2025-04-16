@@ -107,7 +107,6 @@ class EfdQueryClient:
         topics = self.query("show measurements")["name"].to_list()
         return topics
 
-
     @staticmethod
     def build_influxdb_query(
         measurement: str,
