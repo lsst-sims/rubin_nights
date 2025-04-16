@@ -780,7 +780,7 @@ def get_exposure_info(
         image_acquisition_at.index = image_acquisition_at.index.tz_localize("UTC")
         logging.info(f"Found {len(image_acquisition_at)} image times for ATCamera AuxTel")
 
-    image_acquisition = pd.concat([image_acquisition_cc, image_acquisition_at])
+    image_acquisition = pd.concat([image_acquisition_mt, image_acquisition_cc, image_acquisition_at])
 
     # Add exposure log information
     exp_logs = exposure_log_client.query_log(t_start, t_end)
