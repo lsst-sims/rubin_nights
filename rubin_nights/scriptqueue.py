@@ -85,10 +85,25 @@ def get_scheduler_configs(
         Some columns are compacted into single strings, so
         the entire dataframe can fit into a limited set of columns.
     """
+    # The configurationApplied should happen with every scheduler update
+    # We have to find this time first, because we need to then use *this*
+    # to find the previously enabled obsenv
+    topic = "lsst.sal.Scheduler.logevent_configurationApplied"
+    fields = ["SchedulerId", "configurations", "salIndex", "schemaVersion", "url", "version"]
+    conf_start = efd_client.select_top_n(topic, fields, num=1, time_cut=t_start, index=queueIndex)
+    conf = efd_client.select_time_series(topic, fields, t_start, t_end, index=queueIndex)
+    conf = pd.concat([conf_start, conf])
+    if len(conf) == 0:
+        logging.warning("Could not find scheduler configuration.")
+        bad_conf = [t_start.utc.datetime] + ["unknown" for f in fields]
+        conf = pd.DataFrame(bad_conf, columns=["time"] + fields)
+        conf.set_index("time", inplace=True)
+        conf.index = conf.index.tz_localize("UTC")
+
     # First find the obsenv to find the version of ts_config_ocs
     topic = "lsst.obsenv.summary"
     fields = ["summit_extras", "summit_utils", "ts_standardscripts", "ts_externalscripts", "ts_config_ocs"]
-    obsenv_start = obsenv_client.select_top_n(topic, fields, num=1, time_cut=t_start)
+    obsenv_start = obsenv_client.select_top_n(topic, fields, num=1, time_cut=Time(conf.index[0]))
     obsenv = obsenv_client.select_time_series(topic, fields, t_start, t_end)
     obsenv = pd.concat([obsenv_start, obsenv])
     if len(obsenv) == 0:
@@ -139,7 +154,7 @@ def get_scheduler_configs(
         "salIndex",
         "version",
     ]
-    deps_start = efd_client.select_top_n(topic, fields, num=1, time_cut=t_start, index=queueIndex)
+    deps_start = efd_client.select_top_n(topic, fields, num=1, time_cut=Time(conf.index[0]), index=queueIndex)
     deps = efd_client.select_time_series(topic, fields, t_start, t_end, index=queueIndex)
     deps = pd.concat([deps_start, deps])
     if len(deps) == 0:
@@ -151,10 +166,12 @@ def get_scheduler_configs(
 
     # Reconfigure output to fit into script_status fields
     deps["classname"] = "Scheduler dependencies"
+
     # FBS version information isn't propagated - use seeingModel
     def fbs_version(x):
         return f"{x.scheduler} {x.seeingModel}"
-    deps['description'] = deps.apply(fbs_version, axis=1)
+
+    deps["description"] = deps.apply(fbs_version, axis=1)
     models = [c for c in deps.columns if "observatory" in c or "Model" in c]
 
     def build_compact_config_string(x, models):
@@ -167,25 +184,12 @@ def get_scheduler_configs(
     deps["config"] = deps.apply(build_compact_config_string, args=[models], axis=1)
     deps["script_salIndex"] = -1
 
-    # The configurationApplied should happen with every scheduler update
-    topic = "lsst.sal.Scheduler.logevent_configurationApplied"
-    fields = ["SchedulerId", "configurations", "salIndex", "schemaVersion", "url", "version"]
-    conf_start = efd_client.select_top_n(topic, fields, num=1, time_cut=t_start, index=queueIndex)
-    conf = efd_client.select_time_series(topic, fields, t_start, t_end, index=queueIndex)
-    conf = pd.concat([conf_start, conf])
-    if len(conf) == 0:
-        logging.warning("Could not find scheduler configuration.")
-        bad_conf = [t_start.utc.datetime] + ["unknown" for f in fields]
-        conf = pd.DataFrame(bad_conf, columns=["time"] + fields)
-        conf.set_index("time", inplace=True)
-        conf.index = conf.index.tz_localize("UTC")
-
     conf["classname"] = "Scheduler configuration"
     # To get the scheduler relevant info in a single line,
     # pull in ts_config_ocs to the configuration information.
     ts_config_ocs_in_place = []
     for time in conf.index:
-        prev_obsenv = obsenv.query("index < @time")
+        prev_obsenv = obsenv.query("index <= @time")
         if len(prev_obsenv) == 0:
             ts_config_ocs_in_place.append("Unknown")
         else:
@@ -702,21 +706,32 @@ def get_exposure_info(
     narrative_and_errors : `pd.DataFrame`
     """
     # Find exposure information - Simonyi Tel
-    topic = 'lsst.sal.MTCamera.logevent_endOfImageTelemetry'
-    fields = ['imageName', 'imageIndex', 'exposureTime', 'darkTime', 'measuredShutterOpenTime',
-              'additionalValues', 'timestampAcquisitionStart', 'timestampDateEnd', 'timestampDateObs']
+    topic = "lsst.sal.MTCamera.logevent_endOfImageTelemetry"
+    fields = [
+        "imageName",
+        "imageIndex",
+        "exposureTime",
+        "darkTime",
+        "measuredShutterOpenTime",
+        "additionalValues",
+        "timestampAcquisitionStart",
+        "timestampDateEnd",
+        "timestampDateObs",
+    ]
     image_acquisition_mt = efd_client.select_time_series(topic, fields, t_start, t_end)
     # If there were zero images in this timeperiod, just return now.
     if len(image_acquisition_mt) > 0:
         for col in [c for c in image_acquisition_mt.columns if c.startswith("timestamp")]:
-            image_acquisition_mt[col] = Time(image_acquisition_mt[col], format='unix_tai').utc.datetime
-        image_acquisition_mt['salIndex'] = 5
-        image_acquisition_mt['script_salIndex'] = 0
-        image_acquisition_mt['finalStatus'] = "Image Acquired"
+            image_acquisition_mt[col] = Time(image_acquisition_mt[col], format="unix_tai").utc.datetime
+        image_acquisition_mt["salIndex"] = 5
+        image_acquisition_mt["script_salIndex"] = 0
+        image_acquisition_mt["finalStatus"] = "Image Acquired"
+
         def make_config_col_for_image(x):
             return f"exp {x.exposureTime} // dark {x.darkTime} // open {x.measuredShutterOpenTime} "
-        image_acquisition_mt['config'] = image_acquisition_mt.apply(make_config_col_for_image, axis=1)
-        image_acquisition_mt.index = image_acquisition_mt['timestampAcquisitionStart'].copy()
+
+        image_acquisition_mt["config"] = image_acquisition_mt.apply(make_config_col_for_image, axis=1)
+        image_acquisition_mt.index = image_acquisition_mt["timestampAcquisitionStart"].copy()
         image_acquisition_mt.index = image_acquisition_mt.index.tz_localize("UTC")
         print(f"Found {len(image_acquisition_mt)} image times for MTCamera Simonyi")
 
