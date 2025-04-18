@@ -3,4 +3,5 @@ httpx
 numpy
 pandas
 pyvo
+yaml
 lsst-ts-xml
