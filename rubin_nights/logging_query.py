@@ -1,6 +1,7 @@
 """Execute queries for logging services."""
 
 import logging
+import re
 from typing import Literal
 from urllib.parse import urlparse
 
@@ -135,9 +136,11 @@ class NightReportClient(LoggingServiceClient):
             logger.warning(f"No night report available for {day_obs}")
 
         if display_report:
-            self.display_night_report(night_reports)
+            html = self.display_night_report(night_reports)
+        else:
+            html = ""
 
-        return night_reports
+        return night_reports, html
 
     @staticmethod
     def display_night_report(night_reports: list[dict]):
@@ -145,38 +148,26 @@ class NightReportClient(LoggingServiceClient):
             log = night_reports[0]
         else:
             log = night_reports
-        try:
-            from IPython.display import Markdown, display
-
-            display(Markdown(f"Observing crew : {log['observers_crew']}"))
-            night_plan_block = "BLOCK" + urlparse(log["confluence_url"]).fragment.split("BLOCK")[-1]
-            if night_plan_block == "BLOCK":
-                night_plan_block = log["confluence_url"]
-            url = log["confluence_url"]
-            display(
-                Markdown(
-                    f'Night plan : <a href="{url}" target="_blank" rel="noreferrer noopener">'
-                    f"{night_plan_block}</a>"
-                )
-            )
-            display(Markdown("<strong>Summary</strong>"))
-            display(Markdown(log["summary"]))
-            display(Markdown("<strong>Status</strong>"))
-            display(Markdown(log["telescope_status"]))
-        except ModuleNotFoundError:
-            print(f"Observing crew : {log['observers_crew']}")
-            night_plan_block = "BLOCK" + urlparse(log["confluence_url"]).fragment.split("BLOCK")[-1]
-            if night_plan_block == "BLOCK":
-                night_plan_block = log["confluence_url"]
-            url = log["confluence_url"]
-            print(
-                f'Night plan : <a href="{url}" target="_blank" rel="noreferrer noopener">'
-                f"{night_plan_block}</a>"
-            )
-            print("Summary:")
-            print(log["summary"])
-            print("Status:")
-            print(log["telescope_status"])
+        html = ""
+        # observing crew
+        html += f"<p> <strong>Observing crew: </strong> {log['observers_crew']} <br>"
+        # night plan
+        night_plan_block = "BLOCK" + urlparse(log["confluence_url"]).fragment.split("BLOCK")[-1]
+        if night_plan_block == "BLOCK":
+            night_plan_block = log["confluence_url"]
+        night_url = log["confluence_url"]
+        html += (
+            f"<p> <strong>Night plan: </strong> <a href='{night_url}' "
+            f"target='_blank' ref='noreferrer noopener'>"
+        )
+        html += f"{night_plan_block}</a> <br>"
+        # summary
+        html += "<p> <strong>Summary:</strong><br>"
+        summary = re.sub(r"[\n]{2,}", "\n", log["summary"]).replace("\n", "<br>")
+        html += f"{summary}"
+        html += "<p> <strong>Status:</strong><br>"
+        html += f"{log['telescope_status'].replace('\n', '<br>')}"
+        return html
 
 
 class NarrativeLogClient(LoggingServiceClient):
@@ -249,12 +240,22 @@ class NarrativeLogClient(LoggingServiceClient):
             # join log components for compactness
             def clarify_log(x, column):
                 if column == "components_json":
-                    if x[column] is None:
-                        component = "Log"
-                    elif x[column].values() is None:
+                    # Then x[column] will be a dictionary
+                    if x[column] is None or x[column] == {}:
                         component = "Log"
                     else:
-                        component = "Log " + " ".join(x[column].values())
+
+                        def findnames(testvalue):
+                            if isinstance(testvalue, str):
+                                return testvalue
+                            else:
+                                if isinstance(testvalue, list):
+                                    testvalue = testvalue[-1]
+                                elif isinstance(testvalue, dict):
+                                    testvalue = testvalue["name"]
+                            return findnames(testvalue)
+
+                        component = "Log " + findnames(x[column])
                 else:
                     if x[column] is None:
                         component = "Log"
