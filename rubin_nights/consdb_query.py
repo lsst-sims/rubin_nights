@@ -17,7 +17,7 @@ except ModuleNotFoundError:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["ConsDbTap", "ConsDbFast"]
+__all__ = ["ConsDbTap", "ConsDbFastAPI"]
 
 
 class ConsDb:
@@ -78,6 +78,7 @@ class ConsDb:
                 f"No visits for {instrument} between {day_obs_int_min} to "
                 f"{day_obs_int_max} retrieved from consdb"
             )
+            return pd.DataFrame([])
 
         visits.set_index("visit_id", inplace=True)
 
@@ -199,7 +200,7 @@ class ConsDbTap(ConsDb):
         return results
 
 
-class ConsDbFast(ConsDb):
+class ConsDbFastAPI(ConsDb):
     """Query the ConsDB through the FastAPI interface.
 
     Parameters

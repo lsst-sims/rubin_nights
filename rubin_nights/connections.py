@@ -3,7 +3,7 @@
 import logging
 import os
 
-from .consdb_query import ConsDbFast, ConsDbTap
+from .consdb_query import ConsDbFastAPI, ConsDbTap
 from .influx_query import EfdQueryClient
 from .logging_query import ExposureLogClient, NarrativeLogClient, NightReportClient
 
@@ -111,7 +111,7 @@ def get_clients(tokenfile: str | None = None, site: str | None = None) -> dict:
     narrative_log = NarrativeLogClient(api_base, auth)
     exposure_log = ExposureLogClient(api_base, auth)
     night_report = NightReportClient(api_base, auth)
-    consdb_query = ConsDbFast(api_base, auth)
+    consdb_query = ConsDbFastAPI(api_base, auth)
     consdb_tap = ConsDbTap(api_base, token=token)
     # EFD auth and endpoint is handled differently.
     efd_client = EfdQueryClient(site)
