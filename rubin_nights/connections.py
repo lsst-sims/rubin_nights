@@ -2,12 +2,13 @@
 
 import logging
 import os
+from urllib.parse import urlparse
 
 from .consdb_query import ConsDbFastAPI, ConsDbTap
 from .influx_query import EfdQueryClient
 from .logging_query import ExposureLogClient, NarrativeLogClient, NightReportClient
 
-__all__ = ["get_access_token", "get_clients"]
+__all__ = ["get_access_token", "get_clients", "localize_lfa"]
 
 logger = logging.getLogger(__name__)
 
@@ -129,3 +130,22 @@ def get_clients(tokenfile: str | None = None, site: str | None = None) -> dict:
     }
 
     return endpoints
+
+
+def localize_lfa(uri: str, bucket:str='s3://lfa@') -> str:
+    """Convert LFA uri recorded in the EFD to a version accessible at USDF.
+
+    Parameters
+    ----------
+    uri : `str`
+        The URI written into the EFD from the summit.
+    bucket : `str`
+        The bucket access at the USDF.
+
+    Returns
+    -------
+    uri : `str`
+        The LFA uri at USDF.
+    """
+    filekey = urlparse(uri).path.lstrip('/')
+    return bucket + filekey
