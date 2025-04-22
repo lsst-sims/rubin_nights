@@ -95,7 +95,7 @@ class NightReportClient(LoggingServiceClient):
 
     def query_night_report(
         self, day_obs: str, telescope: Literal["AuxTel", "Simonyi"], display_report: bool = True
-    ) -> list[dict]:
+    ) -> (list[dict], str):
         """Fetch the night report logs.
 
         Parameters
@@ -143,7 +143,7 @@ class NightReportClient(LoggingServiceClient):
         return night_reports, html
 
     @staticmethod
-    def display_night_report(night_reports: list[dict]):
+    def display_night_report(night_reports: list[dict]) -> str:
         if isinstance(night_reports, list):
             log = night_reports[0]
         else:
