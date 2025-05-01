@@ -7,18 +7,18 @@ from astropy.time import Time
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "EfdQueryClient",
+    "InfluxQueryClient",
 ]
 
 
-class EfdQueryClient:
-    """Query for EFD InfluxDB data.
+class InfluxQueryClient:
+    """Query for InfluxDB data such as EFD.
 
     Parameters
     ----------
     site : `str`, optional
         The site to use for the EFD.
-        Note: `usdf-dev` does not work, and will be replaced with `usdf`.
+        Note: `usdf-dev` does not exist, and will be replaced with `usdf`.
         Summit is untested.
     db_name : `str`, optional
         The database to query.
