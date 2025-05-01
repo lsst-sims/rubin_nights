@@ -10,7 +10,7 @@ from lsst.ts.xml.enums.ScriptQueue import SalIndex
 from lsst.ts.xml.sal_enums import State as CSCState
 
 from .connections import get_clients
-from .influx_query import EfdQueryClient
+from .influx_query import InfluxQueryClient
 from .logging_query import ExposureLogClient, NarrativeLogClient
 
 # To generate a tiny gap in time
@@ -45,8 +45,8 @@ __all__ = [
 def get_scheduler_configs(
     t_start: Time,
     t_end: Time,
-    efd_client: EfdQueryClient,
-    obsenv_client: EfdQueryClient,
+    efd_client: InfluxQueryClient,
+    obsenv_client: InfluxQueryClient,
     queueIndex: int | None = None,
 ) -> pd.DataFrame:
     """Return information needed to recreate FBS configuration.
@@ -94,7 +94,7 @@ def get_scheduler_configs(
     conf = efd_client.select_time_series(topic, fields, t_start, t_end, index=queueIndex)
     conf = pd.concat([conf_start, conf])
     if len(conf) == 0:
-        logging.warning("Could not find scheduler configuration.")
+        logger.warning("Could not find scheduler configuration.")
         bad_conf = [t_start.utc.datetime] + ["unknown" for f in fields]
         conf = pd.DataFrame(bad_conf, columns=["time"] + fields)
         conf.set_index("time", inplace=True)
@@ -107,7 +107,7 @@ def get_scheduler_configs(
     obsenv = obsenv_client.select_time_series(topic, fields, t_start, t_end)
     obsenv = pd.concat([obsenv_start, obsenv])
     if len(obsenv) == 0:
-        logging.warning("Could not find obsenv values.")
+        logger.warning("Could not find obsenv values.")
         # This shouldn't happen, but could before obsenv was implemented.
         # We need something to fill in for work below.
         bad_obsenv0 = [(t_start - TimeDelta(1, format="mjd") * 3).utc.datetime] + ["unknown" for f in fields]
@@ -158,7 +158,7 @@ def get_scheduler_configs(
     deps = efd_client.select_time_series(topic, fields, t_start, t_end, index=queueIndex)
     deps = pd.concat([deps_start, deps])
     if len(deps) == 0:
-        logging.warning("Could not find scheduler dependencies.")
+        logger.warning("Could not find scheduler dependencies.")
         bad_deps = [t_start.utc.datetime] + ["unknown" for f in fields]
         deps = pd.DataFrame(bad_deps, columns=["time"] + fields)
         deps.set_index("time", inplace=True)
@@ -218,11 +218,11 @@ def get_scheduler_configs(
         sched_config.index.copy().tz_localize(None).astype("datetime64[ns]")
     )
     sched_config["finalScriptState"] = "Configuration"
-    print(f"Found {len(sched_config)} scheduler configuration records")
+    logger.info(f"Found {len(sched_config)} scheduler configuration records")
     return sched_config
 
 
-def get_script_stream(t_start: Time, t_end: Time, efd_client: EfdQueryClient) -> pd.DataFrame:
+def get_script_stream(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
     """Get script description and configuration from
     lsst.sal.Script.logevent_description and lsst.sal.Script.command_configure
     topics.
@@ -277,7 +277,7 @@ def get_script_stream(t_start: Time, t_end: Time, efd_client: EfdQueryClient) ->
 
 
 def get_script_state(
-    t_start: Time, t_end: Time, queueIndex: int | None, efd_client: EfdQueryClient
+    t_start: Time, t_end: Time, queueIndex: int | None, efd_client: InfluxQueryClient
 ) -> pd.DataFrame:
     """Get script status from lsst.sal.ScriptQueue.logevent_script topic.
 
@@ -325,7 +325,7 @@ def get_script_state(
     scripts = efd_client.select_time_series(topic, fields, t_start, t_end, index=queueIndex)
     scripts.rename({"scriptSalIndex": "script_salIndex"}, axis=1, inplace=True)
     if len(scripts) == 0:
-        print(f"Found 0 script events in {t_start.utc.iso} to {t_end.utc.iso}.")
+        logger.info(f"Found 0 script events in {t_start.utc.iso} to {t_end.utc.iso}.")
         script_status = pd.DataFrame([])
 
     else:
@@ -362,7 +362,7 @@ def get_script_state(
     return script_status
 
 
-def get_script_status(t_start: Time, t_end: Time, efd_client: EfdQueryClient) -> pd.DataFrame:
+def get_script_status(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
     """Given a start and end time, appropriately query each ScriptQueue to find
     script descriptions, configurations and status.
 
@@ -412,11 +412,11 @@ def get_script_status(t_start: Time, t_end: Time, efd_client: EfdQueryClient) ->
     if len(dd) == 0:
         offline_events = 0
     else:
-        offline_state = CSCState.OFFLINE.value  # noqa: F841
-        offline_events = len(dd.query("summaryState == @offline_state"))
+        enabled_state = CSCState.ENABLED.value # noqa: F841
+        restart_events = len(dd.query("summaryState == @enabled_state"))
 
-    if offline_events == 0:
-        print(f"No OFFLINE events during time interval {t_start} to {t_end} for any queue.")
+    if restart_events == 0:
+        logger.info(f"No queue ENABLED events during time interval {t_start} to {t_end} for any queue.")
         # So then go ahead and just do a single big query.
         script_stream = get_script_stream(t_start, t_end, efd_client)
         script_status = get_script_state(t_start, t_end, None, efd_client)
@@ -447,29 +447,28 @@ def get_script_status(t_start: Time, t_end: Time, efd_client: EfdQueryClient) ->
                 dd["state"] = dd.apply(apply_enum, args=["summaryState", CSCState], axis=1)
                 dd["state_time"] = Time(dd.index.values)
 
-                tstops = dd.query('state == "OFFLINE"').state_time.values
+                tstops = dd.query('state == "ENABLED"').state_time.values
                 if len(tstops) == 0:
                     tintervals = [[t_start, t_end]]
                 if len(tstops) > 0:
-                    ts = tstops[0]
-                    ts_next = ts + TimeDelta(0.1 * u.second)
-                    ts_next = Time(ts_next)
+                    ts = tstops[0] - TimeDelta(0.1 * u.second)
+                    ts_next = ts
                     tintervals = [[t_start, ts]]
                     for ts in tstops[1:]:
-                        tintervals.append([ts_next, ts])
-                        ts_next = ts + TimeDelta(0.1 * u.second)
+                        tintervals.append([ts_next, ts - TimeDelta(0.1 * u.second)])
+                        ts_next = ts
                     tintervals.append([ts_next, t_end])
             if len(tstops) == 0:
-                logging.info(
-                    f"For {queue.name}, found 0 ScriptQueue OFFLINE events in the "
+                logger.info(
+                    f"For {queue.name}, found 0 ScriptQueue ENABLED events in the "
                     f"time period  {t_start} to {t_end}."
                 )
             else:
-                logging.info(
+                logger.info(
                     f"For {queue.name}, found {len(tstops)} ScriptQueue restarts in the "
                     f"time period {t_start} to {t_end}, so will query in {len(tstops) + 1} chunks"
                 )
-                logging.info(f"OFFLINE event at @ {[t.utc.iso for t in tstops]}")
+                logger.info(f"ENABLED event at @ {[t.utc.iso for t in tstops]}")
 
             # Do the script queue queries for each time interval in this queue
             for tinterval in tintervals:
@@ -488,14 +487,14 @@ def get_script_status(t_start: Time, t_end: Time, efd_client: EfdQueryClient) ->
                         suffixes=["", "_s"],
                     )
                     script_status.append(dd)
-                logging.info(
+                logger.info(
                     f"Found {len(dd)} script-status messages during"
                     f" {[e.iso for e in tinterval]} for {queue.name}"
                 )
         # Convert to a single dataframe
         script_status = pd.concat(script_status)
 
-    logging.info(f"Found {len(script_status)} script status messages")
+    logger.info(f"Found {len(script_status)} script status messages")
 
     # script_status columns:
     # ['classname', 'description', 'script_salIndex', 'ScriptID', 'blockId',
@@ -528,7 +527,7 @@ def get_script_status(t_start: Time, t_end: Time, efd_client: EfdQueryClient) ->
     return script_status
 
 
-def get_error_codes(t_start: Time, t_end: Time, efd_client: EfdQueryClient) -> pd.DataFrame:
+def get_error_codes(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
     """Get all messages from logevent_errorCode topics.
 
     Parameters
@@ -589,11 +588,11 @@ def get_error_codes(t_start: Time, t_end: Time, efd_client: EfdQueryClient) -> p
             ],
         )
 
-    print(f"Found {len(errs)} error messages")
+    logger.info(f"Found {len(errs)} error messages")
     return errs
 
 
-def get_tracebacks(t_start: Time, t_end: Time, efd_client: EfdQueryClient) -> pd.DataFrame:
+def get_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
     """Find tracebacks in lsst.sal.Script.logevent_logMessage.
 
     Parameters
@@ -645,7 +644,7 @@ def get_tracebacks(t_start: Time, t_end: Time, efd_client: EfdQueryClient) -> pd
 
 
 def get_narrative_and_errors(
-    t_start: Time, t_end: Time, efd_client: EfdQueryClient, narrative_log_client: NarrativeLogClient
+    t_start: Time, t_end: Time, efd_client: InfluxQueryClient, narrative_log_client: NarrativeLogClient
 ) -> pd.DataFrame:
     """Get narrative log and error code messages.
 
@@ -675,7 +674,7 @@ def get_narrative_and_errors(
         messages["timestampProcessStart"] = messages.apply(make_time, args=["date_begin"], axis=1)
         messages["timestampRunStart"] = messages.apply(make_time, args=["date_added"], axis=1)
         messages["timestampProcessEnd"] = messages.apply(make_time, args=["date_end"], axis=1)
-    logging.info(f"Found {len(messages)} messages in the narrative log")
+    logger.info(f"Found {len(messages)} messages in the narrative log")
     # Get error codes
     errs = get_error_codes(t_start, t_end, efd_client)
     # Merge narrative log messages and error messages
@@ -684,7 +683,7 @@ def get_narrative_and_errors(
 
 
 def get_exposure_info(
-    t_start: Time, t_end: Time, efd_client: EfdQueryClient, exposure_log_client: ExposureLogClient
+    t_start: Time, t_end: Time, efd_client: InfluxQueryClient, exposure_log_client: ExposureLogClient
 ) -> pd.DataFrame:
     """Get exposure information from
     lsst.sal.CCCamera.logevent_endOfImageTelemetry
@@ -733,7 +732,7 @@ def get_exposure_info(
         image_acquisition_mt["config"] = image_acquisition_mt.apply(make_config_col_for_image, axis=1)
         image_acquisition_mt.index = image_acquisition_mt["timestampAcquisitionStart"].copy()
         image_acquisition_mt.index = image_acquisition_mt.index.tz_localize("UTC")
-        print(f"Found {len(image_acquisition_mt)} image times for MTCamera Simonyi")
+        logger.info(f"Found {len(image_acquisition_mt)} image times for MTCamera Simonyi")
 
     topic = "lsst.sal.CCCamera.logevent_endOfImageTelemetry"
     fields = [
@@ -762,7 +761,7 @@ def get_exposure_info(
         image_acquisition_cc["config"] = image_acquisition_cc.apply(make_config_col_for_image, axis=1)
         image_acquisition_cc.index = image_acquisition_cc["timestampAcquisitionStart"].copy()
         image_acquisition_cc.index = image_acquisition_cc.index.tz_localize("UTC")
-        logging.info(f"Found {len(image_acquisition_cc)} image times for CCCamera Simonyi")
+        logger.info(f"Found {len(image_acquisition_cc)} image times for CCCamera Simonyi")
 
     # Find exposure information - Aux Tel
     topic = "lsst.sal.ATCamera.logevent_endOfImageTelemetry"
@@ -793,13 +792,13 @@ def get_exposure_info(
         image_acquisition_at["config"] = image_acquisition_at.apply(make_config_col_for_image, axis=1)
         image_acquisition_at.index = image_acquisition_at["timestampAcquisitionStart"].copy()
         image_acquisition_at.index = image_acquisition_at.index.tz_localize("UTC")
-        logging.info(f"Found {len(image_acquisition_at)} image times for ATCamera AuxTel")
+        logger.info(f"Found {len(image_acquisition_at)} image times for ATCamera AuxTel")
 
     image_acquisition = pd.concat([image_acquisition_mt, image_acquisition_cc, image_acquisition_at])
 
     # Add exposure log information
     exp_logs = exposure_log_client.query_log(t_start, t_end)
-    logging.info(f"Found {len(exp_logs)} messages in the exposure log")
+    logger.info(f"Found {len(exp_logs)} messages in the exposure log")
     # Modify exposure log and match with exposures to add time tag.
     if len(exp_logs) > 0:
         # Find a time to add the exposure logs into the records
@@ -823,7 +822,7 @@ def get_exposure_info(
             inplace=True,
         )
         image_acquisition = pd.concat([image_acquisition, exp_logs]).sort_index()
-        logging.info("Joined exposure and exposure log")
+        logger.info("Joined exposure and exposure log")
     return image_acquisition
 
 
@@ -852,7 +851,7 @@ def get_consolidated_messages(
         The short-list of columns for display in the table.
     """
     endpoints = get_clients(tokenfile=tokenfile, site=site)
-    logging.info(endpoints)
+    logger.info(f"Endpoint base url: {endpoints['api_base']}")
 
     # Consolidating the information from the various sources requires
     # renaming columns into a more compact set.
@@ -971,7 +970,7 @@ def get_consolidated_messages(
     efd_and_messages.reset_index(drop=False, inplace=True)
     efd_and_messages.rename({"index": "time"}, axis=1, inplace=True)
 
-    print(f"Total combined messages {len(efd_and_messages)}")
+    logger.info(f"Total combined messages {len(efd_and_messages)}")
 
     # If there are any missing columns, such as a section of the
     # log was missing, add keys back in
