@@ -5,7 +5,7 @@ import os
 from urllib.parse import urlparse
 
 from .consdb_query import ConsDbFastAPI, ConsDbTap
-from .influx_query import EfdQueryClient
+from .influx_query import InfluxQueryClient
 from .logging_query import ExposureLogClient, NarrativeLogClient, NightReportClient
 
 __all__ = ["get_access_token", "get_clients", "localize_lfa"]
@@ -114,14 +114,15 @@ def get_clients(tokenfile: str | None = None, site: str | None = None) -> dict:
     night_report = NightReportClient(api_base, auth)
     consdb_query = ConsDbFastAPI(api_base, auth)
     consdb_tap = ConsDbTap(api_base, token=token)
-    # EFD auth and endpoint is handled differently.
-    efd_client = EfdQueryClient(site)
-    obsenv_client = EfdQueryClient(site, db_name="lsst.obsenv")
+    efd_client = InfluxQueryClient(site, db_name='efd')
+    obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv")
+    sasquatch_client = InfluxQueryClient("usdfdev", db_name="lsst.dm")
 
     endpoints = {
         "api_base": api_base,
         "efd": efd_client,
         "obsenv": obsenv_client,
+        "sasquatch": sasquatch_client,
         "consdb": consdb_query,
         "consdb_tap": consdb_tap,
         "narrative_log": narrative_log,
