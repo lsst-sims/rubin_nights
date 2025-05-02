@@ -410,9 +410,9 @@ def get_script_status(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
     # Were there breaks in this queue?
     dd = efd_client.select_time_series(topic, fields, t_start, t_end)
     if len(dd) == 0:
-        offline_events = 0
+        restart_events = 0
     else:
-        enabled_state = CSCState.ENABLED.value # noqa: F841
+        enabled_state = CSCState.ENABLED.value  # noqa: F841
         restart_events = len(dd.query("summaryState == @enabled_state"))
 
     if restart_events == 0:
@@ -851,7 +851,6 @@ def get_consolidated_messages(
         The short-list of columns for display in the table.
     """
     endpoints = get_clients(tokenfile=tokenfile, site=site)
-    logger.info(f"Endpoint base url: {endpoints['api_base']}")
 
     # Consolidating the information from the various sources requires
     # renaming columns into a more compact set.
