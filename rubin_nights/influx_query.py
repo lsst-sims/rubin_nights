@@ -107,6 +107,22 @@ class InfluxQueryClient:
         topics = self.query("show measurements")["name"].to_list()
         return topics
 
+    def get_fields(self, measurement: str) -> pd.DataFrame:
+        """Query the list of field names for a topic.
+
+        Parameters
+        ----------
+        measurement : `str`
+            Name of measurement/topic to query for field names.
+
+        Returns
+        -------
+        fields : `pd.DataFrame`
+            DataFrame with fieldKey / fieldType columns.
+        """
+        query = f'show field keys from "{measurement}"'
+        return self.query(query)
+
     @staticmethod
     def build_influxdb_query(
         measurement: str,

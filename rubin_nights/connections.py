@@ -114,7 +114,7 @@ def get_clients(tokenfile: str | None = None, site: str | None = None) -> dict:
     night_report = NightReportClient(api_base, auth)
     consdb_query = ConsDbFastAPI(api_base, auth)
     consdb_tap = ConsDbTap(api_base, token=token)
-    efd_client = InfluxQueryClient(site, db_name='efd')
+    efd_client = InfluxQueryClient(site, db_name="efd")
     obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv")
     sasquatch_client = InfluxQueryClient("usdfdev", db_name="lsst.dm")
 
@@ -129,11 +129,12 @@ def get_clients(tokenfile: str | None = None, site: str | None = None) -> dict:
         "exposure_log": exposure_log,
         "night_report": night_report,
     }
+    logger.info(f"Endpoint base url: {endpoints['api_base']}")
 
     return endpoints
 
 
-def localize_lfa(uri: str, bucket:str='s3://lfa@') -> str:
+def localize_lfa(uri: str, bucket: str = "s3://lfa@") -> str:
     """Convert LFA uri recorded in the EFD to a version accessible at USDF.
 
     Parameters
@@ -148,5 +149,5 @@ def localize_lfa(uri: str, bucket:str='s3://lfa@') -> str:
     uri : `str`
         The LFA uri at USDF.
     """
-    filekey = urlparse(uri).path.lstrip('/')
+    filekey = urlparse(uri).path.lstrip("/")
     return bucket + filekey
