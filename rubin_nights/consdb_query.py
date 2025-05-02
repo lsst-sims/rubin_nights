@@ -2,10 +2,12 @@
 
 import logging
 
+import astropy.units as u
 import httpx
 import numpy as np
 import pandas as pd
 import pyvo
+from astropy.coordinates import SkyCoord
 from astropy.time import Time
 
 try:
@@ -120,6 +122,13 @@ class ConsDb:
         visits["prev_obs_start_mjd"] = prev_visit_start
         visits["prev_obs_end_mjd"] = prev_visit_end
         visits["visit_gap"] = visit_gap
+
+        coordinates = SkyCoord(visits.s_ra, visits.s_dec, unit=u.degree, frame="icrs")
+        ecliptic = coordinates.transform_to("geocentricmeanecliptic")
+        visits["eclip_lat"] = ecliptic.lat.deg
+        visits["eclip_lon"] = ecliptic.lon.deg
+        visits["gal_lat"] = coordinates.galactic.b.deg
+        visits["gal_lon"] = coordinates.galactic.l.deg
 
         if HAS_RUBIN_SCHEDULER:
             # Add in physical rotator angle, parallactic angle
