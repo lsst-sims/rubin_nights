@@ -17,9 +17,21 @@ try:
 except ModuleNotFoundError:
     HAS_RUBIN_SCHEDULER = False
 
+try:
+    from rubin_sim.phot_utils import predicted_zeropoint, predicted_zeropoint_hardware
+
+    HAS_RUBIN_SIM = True
+except ModuleNotFoundError:
+    HAS_RUBIN_SIM = False
+
 logger = logging.getLogger(__name__)
 
 __all__ = ["ConsDbTap", "ConsDbFastAPI"]
+
+
+GAUSSIAN_FWHM_OVER_SIGMA: float = 2.0 * np.sqrt(2.0 * np.log(2.0))
+PLATESCALE = 0.2
+ZEROPOINT_OFFSETS = {"u": 0.096, "g": 0.13, "r": 0.18, "i": 0.09, "z": 0, "y": 0}
 
 
 class ConsDb:
@@ -119,16 +131,32 @@ class ConsDb:
         visit_gap = np.concatenate(
             [np.array([0]), (visits.obs_start_mjd[1:].values - visits.obs_end_mjd[:-1].values) * 24 * 60 * 60]
         )  # seconds
-        visits["prev_obs_start_mjd"] = prev_visit_start
-        visits["prev_obs_end_mjd"] = prev_visit_end
-        visits["visit_gap"] = visit_gap
 
         coordinates = SkyCoord(visits.s_ra, visits.s_dec, unit=u.degree, frame="icrs")
         ecliptic = coordinates.transform_to("geocentricmeanecliptic")
-        visits["eclip_lat"] = ecliptic.lat.deg
-        visits["eclip_lon"] = ecliptic.lon.deg
-        visits["gal_lat"] = coordinates.galactic.b.deg
-        visits["gal_lon"] = coordinates.galactic.l.deg
+
+        new_df = pd.DataFrame(
+            [
+                prev_visit_start,
+                prev_visit_end,
+                visit_gap,
+                ecliptic.lat.deg,
+                ecliptic.lon.deg,
+                coordinates.galactic.b.deg,
+                coordinates.galactic.l.deg,
+            ],
+            index=[
+                "prev_obs_start_mjd",
+                "prev_obs_end_mjd",
+                "visit_gap",
+                "eclip_lat",
+                "eclip_lon",
+                "gal_lat",
+                "gal_lon",
+            ],
+            columns=visits.index,
+        ).T
+        visits = visits.merge(new_df, right_index=True, left_index=True)
 
         if HAS_RUBIN_SCHEDULER:
             # Add in physical rotator angle, parallactic angle
@@ -160,6 +188,41 @@ class ConsDb:
                 rc = rotation_converter(telescope=tele)
                 rotTelPos = rc.rotskypos2rottelpos(visits.sky_rotation.values, visits["approx_pa"].values)
                 visits["approx_rotTelPos"] = rotTelPos
+
+        if HAS_RUBIN_SIM:
+            new_cols = ["zero_point_1s", "zero_point_1s_pred", "sky_bg_median_mag", "cat_m5"]
+            new_df = pd.DataFrame(
+                [np.zeros(len(visits)) for c in new_cols], index=new_cols, columns=visits.index
+            ).T
+            visits = visits.merge(new_df, right_index=True, left_index=True)
+
+            def calc_predicted_zeropoints(x):
+                if x.shut_time == 0 or np.isnan(x.shut_time):
+                    x.zero_point_1s = np.nan
+                    x.zero_point_1s_pred = np.nan
+                    x.sky_bg_median_mag = np.nan
+                    x.cat_m5 = np.nan
+                    return x
+                try:
+                    x.zero_point_1s = x.zero_point_median - 2.5 * np.log10(x.shut_time)
+                    x.zero_point_1s_pred = (
+                        predicted_zeropoint(x.band, x.airmass, 1) + ZEROPOINT_OFFSETS[x.band]
+                    )
+                    # Convert sky counts/pixel to magnitude/arcsecond^2
+                    zp_sky = predicted_zeropoint_hardware(x.band, x.shut_time)
+                    x.sky_bg_median_mag = -2.5 * np.log10(x.sky_bg_median / PLATESCALE**2) + zp_sky
+                    # Do a dirty approximation for the instrumental noise (in e-)
+                    noise_instr_sq = 13
+                    total_noise_sq = x.psf_area_median * (x.sky_bg_median + noise_instr_sq)
+                    counts_5sigma = np.sqrt(total_noise_sq) * 5
+                    x.cat_m5 = -2.5 * np.log10(counts_5sigma) + x.zero_point_median
+                except KeyError:
+                    # Some bands aren't in the lookup (such as pinhole)
+                    pass
+                # x.zero_point_predicted = predicted_zeropoint(x.band, x.airmass, x.shut_time)
+                return x
+
+            visits = visits.apply(calc_predicted_zeropoints, axis=1)
 
         return visits
 
