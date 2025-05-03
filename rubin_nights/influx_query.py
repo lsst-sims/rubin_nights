@@ -35,6 +35,8 @@ class InfluxQueryClient:
         self._fetch_credentials()
         self.db_name = db_name
         self.results_as_dataframe = results_as_dataframe
+        timeout = httpx.Timeout(300, connect=30.0)
+        self.httpx_client = httpx.Client(timeout=timeout, auth=self.auth)
 
     def _fetch_credentials(self):
         creds_service = f"https://roundtable.lsst.codes/segwarides/creds/{self.site}"
@@ -50,9 +52,8 @@ class InfluxQueryClient:
         """Send a query to the InfluxDB API."""
         params = {"db": self.db_name, "q": query}
         try:
-            response = httpx.get(
+            response = self.httpx_client.get(
                 self.url,
-                auth=self.auth,
                 params=params,
             )
             response.raise_for_status()

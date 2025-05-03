@@ -34,6 +34,27 @@ class LoggingServiceClient:
         self.url = url
         self.auth = auth
         self.results_as_dataframe = results_as_dataframe
+        timeout = httpx.Timeout(120, connect=60.0)
+        self.httpx_client = httpx.Client(timeout=timeout, auth=self.auth)
+        self.sent_wakeup = False
+
+    def _wakeup(self):
+        # The logging services sometimes seem to sleep ..
+        # Send a wake up that just gets the configuration
+        url = "".join(["/".join(self.url.split('/')[:-1]) + "/configuration"])
+        response = self.httpx_client.get(url)
+        if response.status_code != 200:
+            try:
+                response = self.httpx_client.get(url)
+                response.raise_for_status()
+            except httpx.RequestError as exc:
+                logger.warning(f"An error occurred while requesting {exc.request.url!r}.")
+            except httpx.HTTPStatusError as exc:
+                logger.warning(
+                    f"Error response {exc.response.status_code} while requesting {exc.request.url!r}."
+                )
+        self.sent_wakeup = True
+        self.config = response.text
 
     def __repr__(self):
         return self.url
@@ -54,19 +75,17 @@ class LoggingServiceClient:
             If `self.results_as_dataframe` is True, this will be
             transformed to a pandas DataFrame.
         """
-        # Some requests from the logging endpoints fail the first time.
-        response = httpx.get(self.url, auth=self.auth, params=params)
-        # So, try twice (but twice should succeed)
-        if response.status_code != 200:
-            try:
-                response = httpx.get(self.url, auth=self.auth, params=params)
-                response.raise_for_status()
-            except httpx.RequestError as exc:
-                logger.warning(f"An error occurred while requesting {exc.request.url!r}.")
-            except httpx.HTTPStatusError as exc:
-                logger.warning(
-                    f"Error response {exc.response.status_code} while requesting {exc.request.url!r}."
-                )
+        if not self.sent_wakeup:
+            self._wakeup()
+        try:
+            response = self.httpx_client.get(self.url, params=params)
+            response.raise_for_status()
+        except httpx.RequestError as exc:
+            logger.warning(f"An error occurred while requesting {exc.request.url!r}.")
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                f"Error response {exc.response.status_code} while requesting {exc.request.url!r}."
+            )
         # If query was successful, decode and dataframe
         if response.status_code == 200:
             messages = response.json()
@@ -94,7 +113,7 @@ class NightReportClient(LoggingServiceClient):
         super().__init__(url=url, auth=auth, results_as_dataframe=False)
 
     def query_night_report(
-        self, day_obs: str, telescope: Literal["AuxTel", "Simonyi"], display_report: bool = True
+        self, day_obs: str, telescope: Literal["AuxTel", "Simonyi"] = "Simonyi", return_html: bool = True
     ) -> (list[dict], str):
         """Fetch the night report logs.
 
@@ -104,8 +123,8 @@ class NightReportClient(LoggingServiceClient):
             The day_obs of the night report. Format YYYY-MM-DD.
         telescope : `str`
             Fetch the night report logs for this telescope (AuxTel or Simonyi).
-        display_report : `bool`
-            Display the night report logs immediately.
+        return_html : `bool`
+            Send back an HTML formatted version of the first night report log.
 
         Returns
         -------
@@ -135,15 +154,15 @@ class NightReportClient(LoggingServiceClient):
         if len(night_reports) == 0:
             logger.warning(f"No night report available for {day_obs}")
 
-        if display_report:
-            html = self.display_night_report(night_reports)
+        if return_html:
+            html = self.format_night_report(night_reports)
         else:
             html = ""
 
         return night_reports, html
 
     @staticmethod
-    def display_night_report(night_reports: list[dict]) -> str:
+    def format_night_report(night_reports: list[dict]) -> str:
         if isinstance(night_reports, list):
             log = night_reports[0]
         else:
@@ -156,11 +175,13 @@ class NightReportClient(LoggingServiceClient):
         if night_plan_block == "BLOCK":
             night_plan_block = log["confluence_url"]
         night_url = log["confluence_url"]
-        html += (
-            f"<p> <strong>Night plan: </strong> <a href='{night_url}' "
-            f"target='_blank' ref='noreferrer noopener'>"
-        )
-        html += f"{night_plan_block}</a> <br>"
+        # The night plan isn't generally being populated now.
+        if len(night_url) > 0:
+            html += (
+                f"<p> <strong>Night plan: </strong> <a href='{night_url}' "
+                f"target='_blank' ref='noreferrer noopener'>"
+            )
+            html += f"{night_plan_block}</a> <br>"
         # summary
         html += "<p> <strong>Summary:</strong><br>"
         summary = re.sub(r"[\n]{2,}", "\n", log["summary"]).replace("\n", "<br>")

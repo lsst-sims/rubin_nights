@@ -29,20 +29,24 @@ def get_access_token(tokenfile: str | None = None) -> str:
         Token value.
     """
     try:
+        rsp = True
         # Try using lsst-rsp first
         import lsst.rsp.get_access_token as rsp_get_access_token
 
         token = rsp_get_access_token(tokenfile=tokenfile)
     except ImportError:
         # No lsst-rsp available
-        if tokenfile is not None:
-            with open(tokenfile, "r") as f:
-                token = f.read().strip()
-        else:
-            token = os.environ.get("ACCESS_TOKEN")
+        rsp = False
+    if tokenfile is not None:
+        with open(tokenfile, "r") as f:
+            token = f.read().strip()
+    else:
+        token = os.environ.get("ACCESS_TOKEN")
 
     if token is None:
         logging.warning("No RSP token available.")
+        if rsp:
+            logging.warning("Could not import lsst.rsp.get_access_token")
         token = ""
     return token
 

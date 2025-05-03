@@ -221,8 +221,11 @@ class ConsDb:
                     pass
                 # x.zero_point_predicted = predicted_zeropoint(x.band, x.airmass, x.shut_time)
                 return x
-
-            visits = visits.apply(calc_predicted_zeropoints, axis=1)
+            try:
+                visits = visits.apply(calc_predicted_zeropoints, axis=1)
+            except AttributeError:
+                # quicklook didn't add the expected columns
+                pass
 
         return visits
 
@@ -282,11 +285,15 @@ class ConsDbFastAPI(ConsDb):
         e.g. https://usdf-rsp.slac.stanford.edu
     auth : `tuple`
         The username and password for authentication.
+    query_timeout : `float`
+
     """
 
-    def __init__(self, api_base: str, auth: tuple):
+    def __init__(self, api_base: str, auth: tuple, query_timeout: float = 5*60*60):
         self.url = api_base + "/consdb/query"
         self.auth = auth
+        timeout = httpx.Timeout(timeout=query_timeout, connect=30.0)
+        self.httpx_client = httpx.Client(timeout=timeout, auth=self.auth)
 
     def __repr__(self):
         return self.url
@@ -304,19 +311,15 @@ class ConsDbFastAPI(ConsDb):
         results : `pd.DataFrame`
         """
         params = {"query": query}
-        # Some requests from the logging endpoints fail the first time.
-        response = httpx.post(self.url, auth=self.auth, json=params)
-        # So, try twice (but twice should succeed)
-        if response.status_code != 200:
-            try:
-                response = httpx.post(self.url, auth=self.auth, json=params)
-                response.raise_for_status()
-            except httpx.RequestError as exc:
-                logger.warning(f"An error occurred while requesting {exc.request.url!r}.")
-            except httpx.HTTPStatusError as exc:
-                logger.warning(
-                    f"Error response {exc.response.status_code} while requesting {exc.request.url!r}."
-                )
+        try:
+            response = self.httpx_client.post(self.url, json=params)
+            response.raise_for_status()
+        except httpx.RequestError as exc:
+            logger.warning(f"An error occurred while requesting {exc.request.url!r}.")
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                f"Error response {exc.response.status_code} while requesting {exc.request.url!r}."
+            )
         if response.status_code != 200:
             messages = []
         else:
