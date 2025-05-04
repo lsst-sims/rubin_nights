@@ -41,7 +41,7 @@ class LoggingServiceClient:
     def _wakeup(self):
         # The logging services sometimes seem to sleep ..
         # Send a wake up that just gets the configuration
-        url = "".join(["/".join(self.url.split('/')[:-1]) + "/configuration"])
+        url = "".join(["/".join(self.url.split("/")[:-1]) + "/configuration"])
         response = self.httpx_client.get(url)
         if response.status_code != 200:
             try:
@@ -83,9 +83,7 @@ class LoggingServiceClient:
         except httpx.RequestError as exc:
             logger.warning(f"An error occurred while requesting {exc.request.url!r}.")
         except httpx.HTTPStatusError as exc:
-            logger.warning(
-                f"Error response {exc.response.status_code} while requesting {exc.request.url!r}."
-            )
+            logger.warning(f"Error response {exc.response.status_code} while requesting {exc.request.url!r}.")
         # If query was successful, decode and dataframe
         if response.status_code == 200:
             messages = response.json()
