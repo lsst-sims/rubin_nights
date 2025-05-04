@@ -192,8 +192,8 @@ class ConsDb:
         if HAS_RUBIN_SIM:
             new_cols = ["zero_point_1s", "zero_point_1s_pred", "sky_bg_median_mag", "cat_m5"]
             new_df = pd.DataFrame(
-                [np.zeros(len(visits)) for c in new_cols], index=new_cols, columns=visits.index
-            ).T
+                np.zeros((len(visits), len(new_cols))), columns=new_cols, index=visits.index
+            )
             visits = visits.merge(new_df, right_index=True, left_index=True)
 
             def calc_predicted_zeropoints(x):
@@ -221,6 +221,7 @@ class ConsDb:
                     pass
                 # x.zero_point_predicted = predicted_zeropoint(x.band, x.airmass, x.shut_time)
                 return x
+
             try:
                 visits = visits.apply(calc_predicted_zeropoints, axis=1)
             except AttributeError:
@@ -289,7 +290,7 @@ class ConsDbFastAPI(ConsDb):
 
     """
 
-    def __init__(self, api_base: str, auth: tuple, query_timeout: float = 5*60*60):
+    def __init__(self, api_base: str, auth: tuple, query_timeout: float = 5 * 60 * 60):
         self.url = api_base + "/consdb/query"
         self.auth = auth
         timeout = httpx.Timeout(timeout=query_timeout, connect=30.0)
@@ -317,13 +318,19 @@ class ConsDbFastAPI(ConsDb):
         except httpx.RequestError as exc:
             logger.warning(f"An error occurred while requesting {exc.request.url!r}.")
         except httpx.HTTPStatusError as exc:
-            logger.warning(
-                f"Error response {exc.response.status_code} while requesting {exc.request.url!r}."
-            )
+            logger.warning(f"Error response {exc.response.status_code} while requesting {exc.request.url!r}.")
         if response.status_code != 200:
             messages = []
         else:
             messages = response.json()
         if len(messages) > 0:
             messages = pd.DataFrame(messages["data"], columns=messages["columns"])
+            # Check for duplicate columns.
+            indices = np.where(pd.Series(messages.columns.duplicated()))[0]
+            newcols = messages.columns.to_list()
+            for i in indices:
+                newcols[i] = newcols[i] + "_duplicate"
+            # Have to change only some instances of the duplicates
+            messages.columns = newcols
+            messages.drop(messages.columns[indices], axis=1, inplace=True)
         return messages
