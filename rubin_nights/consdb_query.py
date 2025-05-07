@@ -31,10 +31,11 @@ __all__ = ["ConsDbTap", "ConsDbFastAPI"]
 
 GAUSSIAN_FWHM_OVER_SIGMA: float = 2.0 * np.sqrt(2.0 * np.log(2.0))
 PLATESCALE = 0.2
-ZEROPOINT_OFFSETS = {"u": 0.096, "g": 0.13, "r": 0.18, "i": 0.09, "z": 0, "y": 0}
+ZEROPOINT_OFFSETS = {"u": 0, "g": 0, "r": 0, "i": 0, "z": 0, "y": 0}
 
 
 class ConsDb:
+
     def query(self, query) -> pd.DataFrame:
         raise NotImplementedError
 
@@ -206,12 +207,12 @@ class ConsDb:
                 try:
                     x.zero_point_1s = x.zero_point_median - 2.5 * np.log10(x.shut_time)
                     x.zero_point_1s_pred = (
-                        predicted_zeropoint(x.band, x.airmass, 1) + ZEROPOINT_OFFSETS[x.band]
+                        predicted_zeropoint(x.band, x.airmass, 1) + self.predicted_zeropoint_offsets[x.band]
                     )
                     # Convert sky counts/pixel to magnitude/arcsecond^2
                     zp_sky = predicted_zeropoint_hardware(x.band, x.shut_time)
                     x.sky_bg_median_mag = -2.5 * np.log10(x.sky_bg_median / PLATESCALE**2) + zp_sky
-                    # Do a dirty approximation for the instrumental noise (in e-)
+                    # Do an approximation for the instrumental noise (in e-)
                     noise_instr_sq = 13
                     total_noise_sq = x.psf_area_median * (x.sky_bg_median + noise_instr_sq)
                     counts_5sigma = np.sqrt(total_noise_sq) * 5
@@ -219,7 +220,6 @@ class ConsDb:
                 except KeyError:
                     # Some bands aren't in the lookup (such as pinhole)
                     pass
-                # x.zero_point_predicted = predicted_zeropoint(x.band, x.airmass, x.shut_time)
                 return x
 
             try:
@@ -249,8 +249,9 @@ class ConsDbTap(ConsDb):
         cred.set_password("x-oauth-basic", token)
         self.credential = cred.get("ivo://ivoa.net/sso#BasicAA")
         self.tap = pyvo.dal.TAPService(url, session=self.credential)
+        self.predicted_zeropoint_offsets = ZEROPOINT_OFFSETS
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self.tap.baseurl
 
     def query(self, query) -> pd.DataFrame:
@@ -295,8 +296,9 @@ class ConsDbFastAPI(ConsDb):
         self.auth = auth
         timeout = httpx.Timeout(timeout=query_timeout, connect=30.0)
         self.httpx_client = httpx.Client(timeout=timeout, auth=self.auth)
+        self.predicted_zeropoint_offsets = ZEROPOINT_OFFSETS
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self.url
 
     def query(self, query) -> pd.DataFrame:
