@@ -39,8 +39,8 @@ class ConsDb:
     def query(self, query) -> pd.DataFrame:
         raise NotImplementedError
 
-    def get_visits(self, instrument: str, day_obs_min: str, day_obs_max: str) -> pd.DataFrame:
-        """ "Fetch visits from a particular range of day_obs.
+    def get_visits(self, instrument: str, t_start: Time, t_end: Time) -> pd.DataFrame:
+        """ "Fetch visits from a particular range of times.
 
         Parameters
         ----------
@@ -48,12 +48,10 @@ class ConsDb:
             The instrument to search for.
             Typical values would include lsstcomcam, latiss, and lsstcam.
             See https://sdm-schemas.lsst.io/ for more details.
-        day_obs_min : `str`
-            The minimum day_obs for visits.
-            Format YYYY-MM-DD.
-        day_obs_max : `str`
-            The maximum day_obs for visits.
-            Format YYYY-MM-DD.
+        t_start : `Time`
+            The earliest time to match obs_start.
+        t_end : `Time`
+            The latest time to match obs_start.
 
         Returns
         -------
@@ -61,47 +59,22 @@ class ConsDb:
             The visit information from cdb_{instrument}.visit1 and
             cdb_{instrument}.visit1_quicklook (if available).
             Additional information may be added, such as `visit_gap`.
-
-        Notes
-        -----
-        This is useful for gathering all visits from a given range of time.
-        For visits from a particular science survey, do a direct query.
-        """
-        day_obs_int_min = int(day_obs_min.replace("-", ""))
-        day_obs_int_max = int(day_obs_max.replace("-", ""))
-
-        # Querying separately and joining in pandas works.
-        # Otherwise, duplicate columns are a problem for FastAPI (but not TAP).
-        visit_query = f"""
-            SELECT *
-            FROM cdb_{instrument}.visit1
-             WHERE day_obs >= {day_obs_int_min}
-             and day_obs  <= {day_obs_int_max}
         """
 
-        quicklook_query = f"""
-            SELECT q.*  FROM cdb_{instrument}.visit1_quicklook as q,
-            cdb_{instrument}.visit1 as v
-             WHERE q.visit_id = v.visit_id and
-             v.day_obs >= {day_obs_int_min}
-             and v.day_obs <= {day_obs_int_max}
-        """
+        query = (
+            f"select v.*, q.* from  cdb_{instrument}.visit1 as v "
+            f"left join cdb_{instrument}.visit1_quicklook as q "
+            f"on v.visit_id = q.visit_id "
+            f"where obs_start_mjd >= {t_start.mjd} and obs_start_mjd <= {t_end.mjd}"
+        )
 
-        visits = self.query(visit_query)
+        visits = self.query(query)
+
         if len(visits) == 0:
             logger.info(
-                f"No visits for {instrument} between {day_obs_int_min} to "
-                f"{day_obs_int_max} retrieved from consdb"
+                f"No visits for {instrument} between {t_start.iso} to " f"{t_end.iso} retrieved from consdb"
             )
             return pd.DataFrame([])
-
-        visits.set_index("visit_id", inplace=True)
-
-        quicklook = self.query(quicklook_query)
-
-        if len(quicklook) > 0:
-            quicklook.set_index("visit_id", inplace=True)
-            visits = visits.join(quicklook, lsuffix="", rsuffix="_q")
 
         visits = self.augment_visits(visits, instrument)
         return visits
