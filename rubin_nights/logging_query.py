@@ -34,13 +34,12 @@ class LoggingServiceClient:
         self.url = url
         self.auth = auth
         self.results_as_dataframe = results_as_dataframe
-        timeout = httpx.Timeout(120, connect=60.0)
+        timeout = httpx.Timeout(120, connect=30)
         self.httpx_client = httpx.Client(timeout=timeout, auth=self.auth)
-        self.sent_wakeup = False
 
-    def _wakeup(self):
-        # The logging services sometimes seem to sleep ..
-        # Send a wake up that just gets the configuration
+    def _get_config(self):
+        # I thought this would work as a wakeup but it does not.
+        # But it does gather the configuration at least.
         url = "".join(["/".join(self.url.split("/")[:-1]) + "/configuration"])
         response = self.httpx_client.get(url)
         if response.status_code != 200:
@@ -53,7 +52,6 @@ class LoggingServiceClient:
                 logger.warning(
                     f"Error response {exc.response.status_code} while requesting {exc.request.url!r}."
                 )
-        self.sent_wakeup = True
         self.config = response.text
 
     def __repr__(self):
@@ -75,15 +73,19 @@ class LoggingServiceClient:
             If `self.results_as_dataframe` is True, this will be
             transformed to a pandas DataFrame.
         """
-        if not self.sent_wakeup:
-            self._wakeup()
-        try:
-            response = self.httpx_client.get(self.url, params=params)
-            response.raise_for_status()
-        except httpx.RequestError as exc:
-            logger.warning(f"An error occurred while requesting {exc.request.url!r}.")
-        except httpx.HTTPStatusError as exc:
-            logger.warning(f"Error response {exc.response.status_code} while requesting {exc.request.url!r}.")
+        # This is a stupid simple retry - because the logging services
+        # often drop the first request, but are ok after that.
+        response = self.httpx_client.get(self.url, params=params)
+        if response.status_code != 200:
+            try:
+                response = self.httpx_client.get(self.url, params=params)
+                response.raise_for_status()
+            except httpx.RequestError as exc:
+                logger.warning(f"An error occurred while requesting {exc.request.url!r}.")
+            except httpx.HTTPStatusError as exc:
+                logger.warning(
+                    f"Error response {exc.response.status_code} while requesting {exc.request.url!r}."
+                )
         # If query was successful, decode and dataframe
         if response.status_code == 200:
             messages = response.json()
