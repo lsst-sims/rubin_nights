@@ -103,7 +103,7 @@ class InfluxQueryClient:
             result.name = series["name"]
         return result
 
-    def get_topics(self):
+    def get_topics(self) -> list[str]:
         """Find all available topics."""
         topics = self.query("show measurements")["name"].to_list()
         return topics
@@ -225,12 +225,12 @@ class InfluxQueryClient:
 
     def select_time_series(
         self,
-        topic_name,
-        fields,
-        t_start,
-        t_end,
-        index=None,
-    ):
+        topic_name: str,
+        fields: str | list[str],
+        t_start: Time,
+        t_end: Time,
+        index: int | None = None,
+    ) -> pd.DataFrame:
         if index:
             filters = [("salIndex", index)]
         else:
