@@ -28,7 +28,7 @@ class InfluxQueryClient:
         If False, results are returned as a list of dictionaries.
     """
 
-    def __init__(self, site: str = "usdf", db_name: str = "efd", results_as_dataframe: bool = True):
+    def __init__(self, site: str = "usdf", db_name: str = "efd", results_as_dataframe: bool = True) -> None:
         if site == "usdf-dev":
             site = "usdf"
         self.site = site + "_efd"

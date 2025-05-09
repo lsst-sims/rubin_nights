@@ -32,6 +32,14 @@ __all__ = ["ConsDbTap", "ConsDbFastAPI"]
 GAUSSIAN_FWHM_OVER_SIGMA: float = 2.0 * np.sqrt(2.0 * np.log(2.0))
 PLATESCALE = 0.2
 ZEROPOINT_OFFSETS = {"u": 0, "g": 0, "r": 0, "i": 0, "z": 0, "y": 0}
+ZEROPOINT_OFFSETS_LSSTCOMCAM = {"u": 0.26, "g": -0.14, "r": -0.09, "i": -0.10, "z": -0.13, "y": -0.18}
+
+BAD_VISITS_LSSTCAM = (
+    "https://raw.githubusercontent.com/lsst-dm/excluded_visits/" "refs/heads/main/LSSTCam/bad.ecsv"
+)
+BAD_VISITS_LSSTCOMCAM = (
+    "https://raw.githubusercontent.com/lsst-dm/excluded_visits/" "refs/heads/main/LSSTComCam/bad.ecsv"
+)
 
 
 class ConsDb:
@@ -39,7 +47,9 @@ class ConsDb:
     def query(self, query) -> pd.DataFrame:
         raise NotImplementedError
 
-    def get_visits(self, instrument: str, t_start: Time, t_end: Time) -> pd.DataFrame:
+    def get_visits(
+        self, instrument: str, t_start: Time, t_end: Time, augment_visits: bool = True
+    ) -> pd.DataFrame:
         """ "Fetch visits from a particular range of times.
 
         Parameters
@@ -52,6 +62,9 @@ class ConsDb:
             The earliest time to match obs_start.
         t_end : `Time`
             The latest time to match obs_start.
+        augment_visits : `boolean
+            If True, immediately call consdb.augment_visits after fetching
+            visit1 and visit1_quicklook values from the ConsDB.
 
         Returns
         -------
@@ -76,14 +89,36 @@ class ConsDb:
             )
             return pd.DataFrame([])
 
-        visits = self.augment_visits(visits, instrument)
+        if augment_visits:
+            visits = self.augment_visits(visits, instrument)
         return visits
 
     def augment_visits(self, visits: pd.DataFrame, instrument: str = "lsstcam") -> pd.DataFrame:
+        """Add additional columns to the visits dataframe.
 
+        Parameters
+        ----------
+        visits : `pd.DataFrame`
+            The visit information from cdb_{instrument}.visit1 and
+            cdb_{instrument}.visit1_quicklook (if available).
+        instrument : `str`
+            The instrument for the visits.
+            Used to calculate the approproximate rotTelPos value.
+
+        Returns
+        -------
+        visits : `pd.DataFrame`
+            The visit information, with additional columns added for
+            predicted zeropoint values, sky background in magnitudes,
+            an estimated m5 depth (from zeropoint + sky), as well
+            as an approximate rotTelPos (likely off by ~1 deg).
+            Some columns may be reformatted for dtypes.
+        """
+        # Replace Nones or Nans in important string fields
         values = dict([[e, ""] for e in ["science_program", "target_name", "observation_reason"]])
         visits.fillna(value=values, inplace=True)
 
+        # If no quicklook processing was run, these columns may be object:
         columns_to_floats = [
             "s_ra",
             "s_dec",
@@ -91,6 +126,7 @@ class ConsDb:
             "airmass",
             "zero_point_median",
             "psf_sigma_median",
+            "psf_area_median",
             "sky_bg_median",
         ]
         for col in columns_to_floats:
@@ -164,6 +200,7 @@ class ConsDb:
                 visits["approx_rotTelPos"] = rotTelPos
 
         if HAS_RUBIN_SIM:
+            # Add predicted 1s zeropoint
             new_cols = ["zero_point_1s", "zero_point_1s_pred", "sky_bg_median_mag", "cat_m5"]
             new_df = pd.DataFrame(
                 np.zeros((len(visits), len(new_cols))), columns=new_cols, index=visits.index
@@ -183,7 +220,10 @@ class ConsDb:
                         predicted_zeropoint(x.band, x.airmass, 1) + self.predicted_zeropoint_offsets[x.band]
                     )
                     # Convert sky counts/pixel to magnitude/arcsecond^2
-                    zp_sky = predicted_zeropoint_hardware(x.band, x.shut_time)
+                    zp_sky = (
+                        predicted_zeropoint_hardware(x.band, x.shut_time)
+                        + self.predicted_zeropoint_offsets[x.band]
+                    )
                     x.sky_bg_median_mag = -2.5 * np.log10(x.sky_bg_median / PLATESCALE**2) + zp_sky
                     # Do an approximation for the instrumental noise (in e-)
                     noise_instr_sq = 13
@@ -192,15 +232,46 @@ class ConsDb:
                     x.cat_m5 = -2.5 * np.log10(counts_5sigma) + x.zero_point_median
                 except KeyError:
                     # Some bands aren't in the lookup (such as pinhole)
+                    # And some visits
                     pass
                 return x
 
             try:
                 visits = visits.apply(calc_predicted_zeropoints, axis=1)
             except AttributeError:
-                # quicklook didn't add the expected columns
+                # Missing quicklook columns for psf or zeropoint or sky
+                logger.debug("Missing columns for psf_sigma_median, zero_point_median or sky_bg_median.")
                 pass
 
+        return visits
+
+    def exclude_visits(
+        self, visits: pd.DataFrame, bad_visit_list: list[int] | None = None, instrument: str = "lsstcam"
+    ) -> pd.DataFrame:
+        """Remove a list of bad visit_id values.
+
+        Parameters
+        ----------
+        bad_visit_list : `list` [`str`] or `None`
+            A list of bad visit_ids.
+            The default of None will download the bad visits from
+            the instrument-appropriate BAD_VISITS URI in
+            github @ lsst-dm/excluded_visits.
+        ins
+        """
+        # Download bad visit information from github if needed.
+        if bad_visit_list is None:
+            if instrument.lower() == "lsstcam":
+                uri = BAD_VISITS_LSSTCAM
+            elif instrument.lower() == "lsstcomcam":
+                uri = BAD_VISITS_LSSTCOMCAM
+            bad_visits = pd.read_csv(uri, comment="#")
+            bad_visit_list = bad_visits.exposure.to_list()
+        if bad_visit_list is None:
+            logging.warning("No bad_visit_list provided and could not find default match.")
+            return visits
+        # Drop the bad visits
+        visits = visits.query("visit_id not in @bad_visit_list")
         return visits
 
 
