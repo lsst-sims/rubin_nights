@@ -8,7 +8,7 @@ from .consdb_query import ConsDbFastAPI, ConsDbTap
 from .influx_query import InfluxQueryClient
 from .logging_query import ExposureLogClient, NarrativeLogClient, NightReportClient
 
-__all__ = ["get_access_token", "get_clients", "localize_lfa"]
+__all__ = ["get_access_token", "get_clients", "usdf_lfa"]
 
 logger = logging.getLogger(__name__)
 
@@ -20,34 +20,34 @@ def get_access_token(tokenfile: str | None = None) -> str:
     ----------
     tokenfile : `str` or None
         Path to token file.
-        Default None will fall back to environment variable,
-        ACCESS_TOKEN and then try lsst.rsp.get_access_token().
+        Default None will try lsst.rsp.get_access_token or then
+        search for ACCESS_TOKEN environment variable.
 
     Returns
     -------
     token : `str`
         Token value.
     """
-    try:
-        rsp = True
-        # Try using lsst-rsp first
-        import lsst.rsp.get_access_token as rsp_get_access_token
-
-        token = rsp_get_access_token(tokenfile=tokenfile)
-    except ImportError:
-        # No lsst-rsp available
-        rsp = False
+    token = None
+    # First - tokenfile provided
     if tokenfile is not None:
         with open(tokenfile, "r") as f:
             token = f.read().strip()
     else:
-        token = os.environ.get("ACCESS_TOKEN")
+        # Second - are we at an RSP and should use lsst.rsp.get_access_token
+        try:
+            import lsst.rsp.get_access_token as rsp_get_access_token
 
+            token = rsp_get_access_token(tokenfile=tokenfile)
+        except ImportError:
+            # Not on an RSP.
+            pass
+        # Third - try environment variable ACCESS_TOKEN
+        if token is None:
+            token = os.environ.get("ACCESS_TOKEN", None)
+    # Final check to issue warning.
     if token is None:
-        logging.warning("No RSP token available.")
-        if rsp:
-            logging.warning("Could not import lsst.rsp.get_access_token")
-        token = ""
+        logging.warning("No RSP token found.")
     return token
 
 
@@ -138,7 +138,7 @@ def get_clients(tokenfile: str | None = None, site: str | None = None) -> dict:
     return endpoints
 
 
-def localize_lfa(uri: str, bucket: str = "s3://lfa@") -> str:
+def usdf_lfa(uri: str, bucket: str = "s3://lfa@") -> str:
     """Convert LFA uri recorded in the EFD to a version accessible at USDF.
 
     Parameters

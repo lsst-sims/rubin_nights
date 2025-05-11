@@ -48,9 +48,14 @@ class ConsDb:
         raise NotImplementedError
 
     def get_visits(
-        self, instrument: str, t_start: Time, t_end: Time, augment_visits: bool = True
+        self,
+        instrument: str,
+        t_start: Time | None = None,
+        t_end: Time | None = None,
+        visit_constraint: str | None = None,
+        augment_visits: bool = True,
     ) -> pd.DataFrame:
-        """ "Fetch visits from a particular range of times.
+        """ "Fetch visit and quicklook values from the ConsDB.
 
         Parameters
         ----------
@@ -58,10 +63,13 @@ class ConsDb:
             The instrument to search for.
             Typical values would include lsstcomcam, latiss, and lsstcam.
             See https://sdm-schemas.lsst.io/ for more details.
-        t_start : `Time`
+        t_start : `Time` or None
             The earliest time to match obs_start.
-        t_end : `Time`
+        t_end : `Time` or None
             The latest time to match obs_start.
+        visit_constraint : `str` or None
+            A constraint to apply to the cdb_{instrument}.visit1 table.
+            Example: `"science_program = 'BLOCK-365'"`
         augment_visits : `boolean
             If True, immediately call consdb.augment_visits after fetching
             visit1 and visit1_quicklook values from the ConsDB.
@@ -75,18 +83,25 @@ class ConsDb:
         """
 
         query = (
-            f"select v.*, q.* from  cdb_{instrument}.visit1 as v "
+            f"select *, q.* from  cdb_{instrument}.visit1 "
             f"left join cdb_{instrument}.visit1_quicklook as q "
-            f"on v.visit_id = q.visit_id "
-            f"where obs_start_mjd >= {t_start.mjd} and obs_start_mjd <= {t_end.mjd}"
+            f"on visit1.visit_id = q.visit_id "
         )
-
+        constraint = []
+        if t_start is not None:
+            constraint.append(f" obs_start_mjd >= {t_start.mjd} ")
+        if t_end is not None:
+            constraint.append(f" obs_start_mjd <= {t_end.mjd} ")
+        if visit_constraint is not None:
+            constraint.append(f" ({visit_constraint}) ")
+        constraint = "and".join(constraint)
+        if len(constraint) > 0:
+            query = query + f" where {constraint}"
+        logger.debug(f"Query executed: {query}")
         visits = self.query(query)
 
         if len(visits) == 0:
-            logger.info(
-                f"No visits for {instrument} between {t_start.iso} to " f"{t_end.iso} retrieved from consdb"
-            )
+            logger.info(f"No visits for {instrument} retrieved from consdb")
             return pd.DataFrame([])
 
         if augment_visits:
@@ -311,10 +326,7 @@ class ConsDbTap(ConsDb):
         results : `pd.DataFrame`
         """
         try:
-            results = self.tap.search(query)
-            if len(results) == 0:
-                results = []
-            results = pd.DataFrame(results)
+            results = self.tap.search(query).to_table().to_pandas()
         except Exception as e:
             logger.warning(e)
             results = pd.DataFrame([])
