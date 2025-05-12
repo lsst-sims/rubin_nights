@@ -81,7 +81,6 @@ def targets_and_visits(
     # not actually attempted may be duplicate targetIds)
     if len(targets) == 0:
         to = pd.DataFrame([], columns=["targetId", "blockId", "skyAngle"])
-        to = to.astype({"targetId": int, "blockId": int, "skyAngle": float})
     elif len(observations) == 0:
         new_df = pd.DataFrame(
             np.zeros((len(targets.index.values), len(observations.columns.values))),
@@ -104,6 +103,7 @@ def targets_and_visits(
             direction="forward",
         )
         to.sort_values(by="time", inplace=True)
+    to = to.astype({"targetId": int, "blockId": int, "skyAngle": float})
     logger.debug(f"Joined targets and observations for {len(to)} events")
 
     # And nextVisit to visits groupId should be unique --
