@@ -953,7 +953,7 @@ def get_consolidated_messages(
         # .. but I don't know how to track these.
         foldups = foldups.sort_index()
         foldups.rename({"id": "name"}, axis=1, inplace=True)
-        foldups["salIndex"] = 0
+        foldups["salIndex"] = 10
         foldups["script_salIndex"] = -1
         foldups["finalStatus"] = "Job Change"
         foldups["config"] = ""
