@@ -17,8 +17,9 @@ from .logging_query import ExposureLogClient, NarrativeLogClient
 EPS_TIME = np.timedelta64(1, "ms")
 TIMESTAMP_ZERO = Time(0, format="unix_tai").utc.datetime
 
+SALINDEX_EXTRAS = {"narrative_log": 0, "errors": 4, "simonyi_exp": 5, "at_exp": 6, "autolog": 10}
 
-# Run as 'apply' per row (axis=1)
+
 def apply_enum(x: pd.Series, column: str, enumvals: Enum) -> str:
     return enumvals(x[column]).name
 
@@ -138,7 +139,7 @@ def get_scheduler_configs(
     )
     # The obsenv is shared across all scriptqueues.
     # The salIndex has to apply to all.
-    obsenv["salIndex"] = 0
+    obsenv["salIndex"] = SALINDEX_EXTRAS["autolog"]
     obsenv["script_salIndex"] = -1
 
     # Scheduler dependency information - updated independently of obsenv.
@@ -570,7 +571,7 @@ def get_error_codes(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -
             inplace=True,
         )
         # Add a salindex so we can color-code based on this as a "source"
-        errs["salIndex"] = 4
+        errs["salIndex"] = SALINDEX_EXTRAS["errors"]
         errs["finalStatus"] = "ERR"
         errs["timestampProcessStart"] = errs.index.values.copy()
     else:
@@ -668,7 +669,7 @@ def get_narrative_and_errors(
         # rename some columns to match error data
         messages.rename({"time_lost_type": "error_code", "user_id": "origin"}, axis=1, inplace=True)
         # Add a salindex so we can color-code based on this as a "source"
-        messages["salIndex"] = 0
+        messages["salIndex"] = SALINDEX_EXTRAS["narrative_log"]
         messages["error_code"] = 0
         messages["finalStatus"] = "Log"
         messages["timestampProcessStart"] = messages.apply(make_time, args=["date_begin"], axis=1)
@@ -722,7 +723,7 @@ def get_exposure_info(
     if len(image_acquisition_mt) > 0:
         for col in [c for c in image_acquisition_mt.columns if c.startswith("timestamp")]:
             image_acquisition_mt[col] = Time(image_acquisition_mt[col], format="unix_tai").utc.datetime
-        image_acquisition_mt["salIndex"] = 5
+        image_acquisition_mt["salIndex"] = SALINDEX_EXTRAS["simonyi_exp"]
         image_acquisition_mt["script_salIndex"] = 0
         image_acquisition_mt["finalStatus"] = "Image Acquired"
 
@@ -751,7 +752,7 @@ def get_exposure_info(
     if len(image_acquisition_cc) > 0:
         for col in [c for c in image_acquisition_cc.columns if c.startswith("timestamp")]:
             image_acquisition_cc[col] = Time(image_acquisition_cc[col], format="unix_tai").utc.datetime
-        image_acquisition_cc["salIndex"] = 5
+        image_acquisition_cc["salIndex"] = SALINDEX_EXTRAS["simonyi_exp"]
         image_acquisition_cc["script_salIndex"] = 0
         image_acquisition_cc["finalStatus"] = "Image Acquired"
 
@@ -782,7 +783,7 @@ def get_exposure_info(
         for col in [c for c in image_acquisition_at.columns if c.startswith("timestamp")]:
             # Is it possible ATCamera is not using tai?
             image_acquisition_at[col] = Time(image_acquisition_at[col], format="unix_tai").utc.datetime
-        image_acquisition_at["salIndex"] = 6
+        image_acquisition_at["salIndex"] = SALINDEX_EXTRAS["at_exp"]
         image_acquisition_at["script_salIndex"] = 0
         image_acquisition_at["finalStatus"] = "Image Acquired"
 
@@ -808,7 +809,7 @@ def get_exposure_info(
         exp_logs["img_time"] = exp_log_image_time
         exp_logs.set_index("img_time", inplace=True)
         exp_logs.index = exp_logs.index.tz_localize("UTC")
-        exp_logs["salIndex"] = 0
+        exp_logs["salIndex"] = SALINDEX_EXTRAS["narrative_log"]
         exp_logs["script_salIndex"] = 0
         # Rename some columns in the exposure log to consolidate here
         exp_logs.rename(
@@ -953,7 +954,7 @@ def get_consolidated_messages(
         # .. but I don't know how to track these.
         foldups = foldups.sort_index()
         foldups.rename({"id": "name"}, axis=1, inplace=True)
-        foldups["salIndex"] = 10
+        foldups["salIndex"] = SALINDEX_EXTRAS["autolog"]
         foldups["script_salIndex"] = -1
         foldups["finalStatus"] = "Job Change"
         foldups["config"] = ""

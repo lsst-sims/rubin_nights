@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import yaml
 
+from .scriptqueue import SALINDEX_EXTRAS
+
 __all__ = ["get_name_and_color_from_salindex", "format_html"]
 
 
@@ -11,14 +13,14 @@ __all__ = ["get_name_and_color_from_salindex", "format_html"]
 def get_name_and_color_from_salindex(sal_index, unknown_color="#f9f9f9"):
     # Colors from https://medialab.github.io/iwanthue/
     return {
-        0: ("Narrative log", "#cf7ddc"),
+        SALINDEX_EXTRAS["narrative_log"]: ("Narrative log", "#cf7ddc"),
         1: ("MTQueue", "#b4c546"),
         2: ("ATQueue", "#bab980"),
         3: ("OCSQueue", "#b2baad"),
-        4: ("EFD error", "#9cb5d5"),
-        5: ("Simonyi Exposure", "#b6ecf5"),
-        6: ("Auxtel Exposure", "#d8f1f5"),
-        10: ("Auto log", "#e78bb8"),
+        SALINDEX_EXTRAS["errors"]: ("EFD error", "#9cb5d5"),
+        SALINDEX_EXTRAS["simonyi_exp"]: ("Simonyi Exposure", "#b6ecf5"),
+        SALINDEX_EXTRAS["at_log"]: ("Auxtel Exposure", "#d8f1f5"),
+        SALINDEX_EXTRAS["autolog"]: ("Autolog", "#e78bb8"),
     }.get(sal_index, ("??", unknown_color))
 
 
