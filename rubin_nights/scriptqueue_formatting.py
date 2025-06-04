@@ -19,7 +19,7 @@ def get_name_and_color_from_salindex(sal_index, unknown_color="#f9f9f9"):
         3: ("OCSQueue", "#b2baad"),
         SALINDEX_EXTRAS["errors"]: ("EFD error", "#9cb5d5"),
         SALINDEX_EXTRAS["simonyi_exp"]: ("Simonyi Exposure", "#b6ecf5"),
-        SALINDEX_EXTRAS["at_log"]: ("Auxtel Exposure", "#d8f1f5"),
+        SALINDEX_EXTRAS["at_exp"]: ("Auxtel Exposure", "#d8f1f5"),
         SALINDEX_EXTRAS["autolog"]: ("Autolog", "#e78bb8"),
     }.get(sal_index, ("??", unknown_color))
 
