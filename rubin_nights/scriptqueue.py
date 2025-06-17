@@ -367,6 +367,10 @@ def get_script_status(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
     """Given a start and end time, appropriately query each ScriptQueue to find
     script descriptions, configurations and status.
 
+    This is an appropriate function to call if you just want to retrieve
+    a description of the ongoing telescope commands, without additional
+    logs or configuration information.
+
     Parameters
     ----------
     t_start : `astropy.Time`
@@ -679,7 +683,12 @@ def get_narrative_and_errors(
     # Get error codes
     errs = get_error_codes(t_start, t_end, efd_client)
     # Merge narrative log messages and error messages
-    narrative_and_errors = pd.concat([errs, messages]).sort_index()
+    if len(errs) == 0:
+        narrative_and_errors = messages
+    elif len(messages) == 0:
+        narrative_and_errors = errs
+    else:
+        narrative_and_errors = pd.concat([errs, messages]).sort_index()
     return narrative_and_errors
 
 
