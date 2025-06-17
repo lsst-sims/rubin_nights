@@ -92,6 +92,8 @@ def targets_and_visits(
         to = pd.merge(targets, new_df, left_index=True, right_index=True, suffixes=("", "_o"))
         to.reset_index("time", inplace=True)
     else:
+        # Use merge_asof so that we can remove targetId matches
+        # which are not actually of the same target
         to = pd.merge_asof(
             targets.sort_values("targetId").reset_index("time"),
             observations.sort_values("targetId").reset_index("time"),
@@ -127,6 +129,7 @@ def targets_and_visits(
     # is only unique within times of scriptqueue restarts
     # We can narrow down the links using the angle of the rotator
     # (better would be to fetch times of restarts, but this is cheap)
+    # (works for science visits, but other programs may not)
     vt = pd.merge_asof(
         to.sort_values("blockId"),
         nv.sort_values("scriptSalIndex"),
@@ -173,4 +176,4 @@ def targets_and_visits(
         "target_name",
     ]
 
-    return vt, cols
+    return vt, cols, to, nv, visits
