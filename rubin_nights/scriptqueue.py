@@ -9,7 +9,6 @@ from lsst.ts.xml.enums.Script import ScriptState
 from lsst.ts.xml.enums.ScriptQueue import SalIndex
 from lsst.ts.xml.sal_enums import State as CSCState
 
-from .connections import get_clients
 from .influx_query import InfluxQueryClient
 from .logging_query import ExposureLogClient, NarrativeLogClient
 
@@ -836,9 +835,7 @@ def get_exposure_info(
     return image_acquisition
 
 
-def get_consolidated_messages(
-    t_start: Time, t_end: Time, tokenfile: str | None = None, site: str | None = None
-) -> tuple[pd.DataFrame, list[str]]:
+def get_consolidated_messages(t_start: Time, t_end: Time, endpoints: dict) -> tuple[pd.DataFrame, list[str]]:
     """Get consolidated messages from EFD ScriptQueue, errorCodes,
     CCCamera, exposure and narrative logs.
 
@@ -848,10 +845,9 @@ def get_consolidated_messages(
         Time of the start of the messages.
     t_end : `astropy.Time`
         Time of the end of the messages.
-    tokenfile : `str` or None
-        RSP token file. Default None.
-    site : `str` or None
-        The service site to choose. Default will use usdf-rsp.
+    endpoints : `dict`
+        Endpoints is a dictionary of client connections to the EFD and the
+        ConsDb, such as returned by `rubin_nights.connections.get_clients`.
 
     Returns
     -------
@@ -860,7 +856,6 @@ def get_consolidated_messages(
     cols: `list` [`str`]
         The short-list of columns for display in the table.
     """
-    endpoints = get_clients(tokenfile=tokenfile, site=site)
 
     # Consolidating the information from the various sources requires
     # renaming columns into a more compact set.

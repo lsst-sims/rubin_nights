@@ -231,7 +231,8 @@ class ConsDb:
             "moon_alt",
             "moon_az",
             "moon_RA",
-            "moon_Dec" "moon_distance",
+            "moon_Dec",
+            "moon_distance",
             "moon_illum",
         ]
         new_df = pd.DataFrame(np.zeros((len(visits), len(new_cols))), columns=new_cols, index=visits.index)
@@ -316,6 +317,9 @@ class ConsDb:
             as an approximate rotTelPos (likely off by ~1 deg).
             Some columns may be reformatted for dtypes.
         """
+        if len(visits) == 0:
+            return visits
+
         # Replace Nones or Nans in important string fields
         values = dict([[e, ""] for e in ["science_program", "target_name", "observation_reason"]])
         visits.fillna(value=values, inplace=True)
@@ -378,7 +382,7 @@ class ConsDb:
 
         return visits
 
-    def exclude_visits(
+    def exclude_bad_visits(
         self, visits: pd.DataFrame, bad_visit_list: list[int] | None = None, instrument: str = "lsstcam"
     ) -> pd.DataFrame:
         """Remove a list of bad visit_id values.
@@ -392,6 +396,8 @@ class ConsDb:
             github @ lsst-dm/excluded_visits.
         ins
         """
+        if len(visits) == 0:
+            return visits
         # Download bad visit information from github if needed.
         if bad_visit_list is None:
             if instrument.lower() == "lsstcam":

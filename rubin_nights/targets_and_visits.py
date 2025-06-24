@@ -4,16 +4,16 @@ import numpy as np
 import pandas as pd
 from astropy.time import Time
 
-from .connections import get_clients
-
 logger = logging.getLogger(__name__)
 
-__all__ = ["targets_and_visits"]
+__all__ = [
+    "targets_and_visits",
+]
 
 
 def targets_and_visits(
-    t_start: Time, t_end: Time, tokenfile: str | None = None, site: str | None = None
-) -> tuple[pd.DataFrame, list[str]]:
+    t_start: Time, t_end: Time, endpoints: dict, queueIndex: int = 1
+) -> tuple[pd.DataFrame, list[str], pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Dataframe showing linked Targets, Observations, NextVisits and Visits.
 
     Parameters
@@ -22,10 +22,13 @@ def targets_and_visits(
         Time of the start of the events.
     t_end : `astropy.Time`
         Time of the end of the events.
-    tokenfile : `str` or None
-        RSP token file. Default None.
-    site : `str` or None
-        The service site to choose. Default will use usdf-rsp.
+    endpoints : `dict`
+        Endpoints is a dictionary of client connections to the EFD and the
+        ConsDb, such as returned by `rubin_nights.connections.get_clients`.
+    queueIndex : `int`, optional
+        The SalIndex to query for Targets, corresponding to the Scheduler
+        queue. Default of 1 corresponds to the Simonyi queue.
+        Using queueIndex = 2 will trigger a request for latiss visits.
 
     Returns
     -------
@@ -33,11 +36,16 @@ def targets_and_visits(
         A Dataframe of Target, Observation, NextVisit and Visits.
     cols: `list` [`str`]
         The short-list of columns for display in the table.
+    target_and_observations : `pd.DataFrame`
+        A Dataframe of Targets joined to Observations.
+    nextvisit_and_visits : `pd.DataFrame`
+        A Dataframe of nextVisits joined to Visits.
+    visits : `pd.DataFrame`
+        A dataframe of all of the visits during the time period.
     """
-    endpoints = get_clients(tokenfile, site)
 
     topic = "lsst.sal.Scheduler.logevent_target"
-    targets = endpoints["efd"].select_time_series(topic, "*", t_start, t_end, index=1)
+    targets = endpoints["efd"].select_time_series(topic, "*", t_start, t_end, index=queueIndex)
     logger.debug(f"{len(targets)} targets events")
 
     topic = "lsst.sal.Scheduler.logevent_observation"
@@ -54,13 +62,13 @@ def targets_and_visits(
         "salIndex",
         "targetId",
     ]
-    observations = endpoints["efd"].select_time_series(topic, fields, t_start, t_end, index=1)
+    observations = endpoints["efd"].select_time_series(topic, fields, t_start, t_end, index=queueIndex)
     if len(observations) == 0:
         observations = pd.DataFrame([], columns=fields + ["time"])
     logger.debug(f"{len(observations)} observation events")
 
     topic = "lsst.sal.ScriptQueue.logevent_nextVisit"
-    nextvisits = endpoints["efd"].select_time_series(topic, "*", t_start, t_end, index=1)
+    nextvisits = endpoints["efd"].select_time_series(topic, "*", t_start, t_end, index=queueIndex)
     logger.debug(f"{len(nextvisits)} next visit events")
     # group next visit events on salindex, when the target is the same
     nextvisits = (
@@ -72,7 +80,11 @@ def targets_and_visits(
     nextvisits = nextvisits.set_index("time")
     logger.debug(f"{len(nextvisits)} next visit events for unique targets")
 
-    visits = endpoints["consdb"].get_visits("lsstcam", t_start, t_end)
+    if queueIndex == 2:
+        instrument = "latiss"
+    else:
+        instrument = "lsstcam"
+    visits = endpoints["consdb"].get_visits(instrument, t_start, t_end)
     logger.debug(f"{len(visits)} visits")
 
     # In theory, targets and observations could be merged directly on targetId
@@ -108,7 +120,15 @@ def targets_and_visits(
     to = to.astype({"targetId": int, "blockId": int, "skyAngle": float})
     logger.debug(f"Joined targets and observations for {len(to)} events")
 
-    # And nextVisit to visits groupId should be unique --
+    # If either visit or nextvisit are empty, just quit here.
+    if len(visits) == 0:
+        logger.warning("Could not retrieve any visits")
+        return pd.DataFrame([]), [], to, nextvisits, visits
+    elif len(nextvisits) == 0:
+        logger.warning("Could not find any nextVisits, can't link to visits")
+        return pd.DataFrame([]), [], to, nextvisits, visits
+
+    # nextVisit to visits groupId should be unique --
     # for visits that are acquired
     nv = pd.merge(
         visits,

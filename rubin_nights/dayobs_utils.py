@@ -9,7 +9,6 @@ __all__ = [
     "day_obs_str_to_int",
     "day_obs_int_to_str",
     "day_obs_sunset_sunrise",
-    "rtn045_plot_styles",
 ]
 
 
@@ -40,13 +39,15 @@ def day_obs_str_to_int(day_obs: str) -> int:
     return int(day_obs.replace("-", ""))
 
 
-def day_obs_sunset_sunrise(day_obs: str | int) -> tuple[Time, Time]:
+def day_obs_sunset_sunrise(day_obs: str | int, sun_alt: float = -12) -> tuple[Time, Time]:
     """Return the civil sunset and sunrise for day_obs.
 
     Parameters
     ----------
     day_obs : `str` or `int`
         Current day_obs in format YYYY-MM-DD or YYYYMMDD
+    sun_alt : `float`
+        Altitude (in degrees) of the sun at 'sunrise' and 'sunset'.
 
     Returns
     -------
@@ -60,36 +61,6 @@ def day_obs_sunset_sunrise(day_obs: str | int) -> tuple[Time, Time]:
         day_obs = day_obs_int_to_str(day_obs)
     day_obs_time = Time(f"{day_obs}T12:00:00", format="isot", scale="tai")
     observer = Observer.at_site("lsst")
-    sunset = Time(observer.sun_set_time(day_obs_time, which="next", horizon=-6 * u.deg), format="jd")
-    sunrise = Time(observer.sun_rise_time(day_obs_time, which="next", horizon=-6 * u.deg), format="jd")
+    sunset = Time(observer.sun_set_time(day_obs_time, which="next", horizon=sun_alt * u.deg), format="jd")
+    sunrise = Time(observer.sun_rise_time(day_obs_time, which="next", horizon=sun_alt * u.deg), format="jd")
     return (sunset, sunrise)
-
-
-def rtn045_plot_styles() -> dict:
-    plot_styles = {}
-    plot_styles["band_colors_white"] = {
-        "u": "#0c71ff",
-        "g": "#49be61",
-        "r": "#c61c00",
-        "i": "#ffc200",
-        "z": "#f341a2",
-        "y": "#5d0000",
-    }
-    plot_styles["band_colors_black"] = {
-        "u": "#3eb7ff",
-        "g": "#30c39f",
-        "r": "#ff7e00",
-        "i": "#2af5ff",
-        "z": "#a7f9c1",
-        "y": "#fdc900",
-    }
-    plot_styles["band_symbols"] = {"u": "o", "g": "^", "r": "v", "i": "s", "z": "*", "y": "p"}
-    plot_styles["band_linestyles"] = {
-        "u": "--",
-        "g": ":",
-        "r": "-",
-        "i": "-.",
-        "z": (0, (3, 5, 1, 5, 1, 5)),
-        "y": (0, (3, 1, 1, 1)),
-    }
-    return plot_styles
