@@ -615,9 +615,9 @@ def get_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) ->
     """
     # Add tracebacks for failed scripts -- these should just slot in
     # right after FAILED scripts, and link with script_salIndex
-    topic = "lsst.sal.Script.logevent_logMessage"
-    fields = ["message", "traceback", "salIndex"]
-    traceback_messages = efd_client.select_time_series(topic, fields, t_start, t_end)
+    query = 'select message, traceback, salIndex from "lsst.sal.Script.logevent_logMessage"'
+    query += f"where time >= '{t_start.isot}Z' and time <= '{t_end.isot}Z' and traceback != ''"
+    traceback_messages = efd_client.query(query)
     traceback_messages.rename({"salIndex": "script_salIndex"}, axis=1, inplace=True)
     # First check if there are any messages to query.
     if len(traceback_messages) > 0:

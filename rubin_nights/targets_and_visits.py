@@ -8,11 +8,12 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "targets_and_visits",
+    "flag_potential_bad_visits",
 ]
 
 
 def targets_and_visits(
-    t_start: Time, t_end: Time, endpoints: dict, queueIndex: int = 1
+    t_start: Time, t_end: Time, endpoints: dict, queue_index: int = 1
 ) -> tuple[pd.DataFrame, list[str], pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Dataframe showing linked Targets, Observations, NextVisits and Visits.
 
@@ -45,7 +46,8 @@ def targets_and_visits(
     """
 
     topic = "lsst.sal.Scheduler.logevent_target"
-    targets = endpoints["efd"].select_time_series(topic, "*", t_start, t_end, index=queueIndex)
+    targets = endpoints["efd"].select_time_series(topic, "*", t_start, t_end, index=queue_index)
+    targets = targets.query("snapshotUri != ''")
     logger.debug(f"{len(targets)} targets events")
 
     topic = "lsst.sal.Scheduler.logevent_observation"
@@ -62,13 +64,13 @@ def targets_and_visits(
         "salIndex",
         "targetId",
     ]
-    observations = endpoints["efd"].select_time_series(topic, fields, t_start, t_end, index=queueIndex)
+    observations = endpoints["efd"].select_time_series(topic, fields, t_start, t_end, index=queue_index)
     if len(observations) == 0:
         observations = pd.DataFrame([], columns=fields + ["time"])
     logger.debug(f"{len(observations)} observation events")
 
     topic = "lsst.sal.ScriptQueue.logevent_nextVisit"
-    nextvisits = endpoints["efd"].select_time_series(topic, "*", t_start, t_end, index=queueIndex)
+    nextvisits = endpoints["efd"].select_time_series(topic, "*", t_start, t_end, index=queue_index)
     logger.debug(f"{len(nextvisits)} next visit events")
     # group next visit events on salindex, when the target is the same
     nextvisits = (
@@ -80,7 +82,7 @@ def targets_and_visits(
     nextvisits = nextvisits.set_index("time")
     logger.debug(f"{len(nextvisits)} next visit events for unique targets")
 
-    if queueIndex == 2:
+    if queue_index == 2:
         instrument = "latiss"
     else:
         instrument = "lsstcam"
@@ -197,3 +199,59 @@ def targets_and_visits(
     ]
 
     return vt, cols, to, nv, visits
+
+
+def flag_potential_bad_visits(
+    target_visits: pd.DataFrame, extinction: float = 1, no_quicklook: bool = True
+) -> list[str]:
+    """Flag potential bad visits within the target_visits dataframe.
+
+    Parameters
+    ----------
+    target_visits : `pd.DataFrame`
+        Dataframe containing information on the linked
+        target-observation-visit content, such as
+        from `targets_and_visits`.
+    extinction : `float`
+        The magnitudes of extinction to allow before considering a visit
+        "bad". This can indicate cloud extinction; however mini-donuts
+        or other problems with an observation such as a minor tracking glitch
+        can also show up as an offset between the measured and predicted
+        zeropoint, just as if it were cloud extinction.
+    no_quicklook : `bool`
+        Flag a visit as bad if there was no quicklook information.
+        Missing quicklook can indicate the visit failed to process, which
+        can be an indicator of a bad visit with giant donuts.
+        However, missing quicklook can also just indicate that Rapid Analysis
+        could not reach the ConsDB, or that it did not have calibration data,
+        or that the pointing simply has too many or too few stars.
+
+    Returns
+    -------
+    flagged_visit_ids : `list` [ `str` ]
+        The list of visit_ids corresponding to the flagged visits.
+
+    Notes
+    -----
+    Visits are always marked "bad" if the target event did not match with
+    an observation event. This could happen for rare other reasons, but
+    almost always indicates that the script failed due to a fault in the
+    observatory, such as a loss of tracking or rotator.
+    """
+    quicklook_missing = np.where(np.isnan(target_visits.zero_point_median) & (target_visits.visit_id > 0))[0]
+    big_zp_offset = np.where(
+        (target_visits.zero_point_1s_pred.values - target_visits.zero_point_1s.values) > extinction
+    )[0]
+    failed_obs = np.where(np.isnan(target_visits.time_observation.values) & (target_visits.visit_id > 0))[0]
+    issues = np.concatenate([big_zp_offset, failed_obs])
+    if no_quicklook:
+        issues = np.concatenate([quicklook_missing, issues])
+    issues = np.sort(issues)
+    issues = np.unique(issues)
+    logger.debug(
+        f"Found {len(quicklook_missing)} visits missing quicklook,"
+        f" {len(big_zp_offset)} visits with big zeropoint offsets/extinction,"
+        f" and {len(failed_obs)} visits with missing observation events,"
+        f" out of a total of {len(target_visits)} visits."
+    )
+    return target_visits.iloc[issues]["visit_id"]

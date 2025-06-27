@@ -1,6 +1,7 @@
 """Execute queries for the ConsDB."""
 
 import logging
+import warnings
 
 import astropy.units as u
 import httpx
@@ -33,7 +34,7 @@ except ModuleNotFoundError:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["ConsDbTap", "ConsDbFastAPI"]
+__all__ = ["fetch_excluded_visits", "ConsDbTap", "ConsDbFastAPI"]
 
 
 GAUSSIAN_FWHM_OVER_SIGMA: float = 2.0 * np.sqrt(2.0 * np.log(2.0))
@@ -49,9 +50,36 @@ BAD_VISITS_LSSTCOMCAM = (
 )
 
 
+def fetch_excluded_visits(instrument: str = "lsstcam") -> list[str]:
+    """Retrieve excluded visit list from the instrument-appropriate
+    BAD_VISITS URI at github @ lsst-dm/excluded_visits.
+
+    Parameters
+    ----------
+    instrument : `str`
+        Which bad.ecsv file to retrieve.
+        The options are lsstcam or lsstcomcam.
+
+    Returns
+    -------
+    bad_visit_ids : `list` [ `str` ]
+        The bad visit_ids from the github repo bad.ecsv file.
+    """
+    if instrument.lower() == "lsstcam":
+        uri = BAD_VISITS_LSSTCAM
+    elif instrument.lower() == "lsstcomcam":
+        uri = BAD_VISITS_LSSTCOMCAM
+    bad_visits = pd.read_csv(uri, comment="#")
+    bad_visit_ids = bad_visits.exposure.to_list()
+    return bad_visit_ids
+
+
 class ConsDb:
 
     def query(self, query) -> pd.DataFrame:
+        """This is implemented in the child classes,
+        according to the interface used to access the ConsDB.
+        """
         raise NotImplementedError
 
     def get_visits(
@@ -349,7 +377,10 @@ class ConsDb:
         )  # seconds
 
         coordinates = SkyCoord(visits.s_ra, visits.s_dec, unit=u.degree, frame="icrs")
-        ecliptic = coordinates.transform_to("geocentricmeanecliptic")
+        # We get runtime warnings here where nans are present
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            ecliptic = coordinates.transform_to("geocentricmeanecliptic")
 
         new_df = pd.DataFrame(
             [
@@ -382,36 +413,27 @@ class ConsDb:
 
         return visits
 
-    def exclude_bad_visits(
-        self, visits: pd.DataFrame, bad_visit_list: list[int] | None = None, instrument: str = "lsstcam"
-    ) -> pd.DataFrame:
-        """Remove a list of bad visit_id values.
+    def exclude_visits(self, visits: pd.DataFrame, bad_visit_ids: list[str]) -> pd.DataFrame:
+        """Remove the visits_ids in bad_visit_ids from visits.
 
         Parameters
         ----------
-        bad_visit_list : `list` [`str`] or `None`
-            A list of bad visit_ids.
-            The default of None will download the bad visits from
-            the instrument-appropriate BAD_VISITS URI in
-            github @ lsst-dm/excluded_visits.
-        ins
+        visits : `pd.DataFrame`
+            A dataframe containing visit information, with visit_id values.
+        bad_visit_ids : `list` [ `str` ]
+            The list of bad visit_ids to remove.
+            This could be generated from
+            rubin_nights.consdb.fetch_excluded_visits or
+            rubin_nights.targets_and_visits.flag_potential_bad_visits
+            or any other list of unwanted visit_ids.
+
+        Returns
+        -------
+        good_visits : `pd.DataFrame`
+            The visits dataframe but with bad_visit_ids removed.
         """
-        if len(visits) == 0:
-            return visits
-        # Download bad visit information from github if needed.
-        if bad_visit_list is None:
-            if instrument.lower() == "lsstcam":
-                uri = BAD_VISITS_LSSTCAM
-            elif instrument.lower() == "lsstcomcam":
-                uri = BAD_VISITS_LSSTCOMCAM
-            bad_visits = pd.read_csv(uri, comment="#")
-            bad_visit_list = bad_visits.exposure.to_list()
-        if bad_visit_list is None:
-            logging.warning("No bad_visit_list provided and could not find default match.")
-            return visits
-        # Drop the bad visits
-        visits = visits.query("visit_id not in @bad_visit_list")
-        return visits
+        if len(bad_visit_ids) > 0:
+            return visits.query("visit_id not in @bad_visit_ids")
 
 
 class ConsDbTap(ConsDb):

@@ -8,6 +8,7 @@ __all__ = [
     "time_to_day_obs",
     "day_obs_str_to_int",
     "day_obs_int_to_str",
+    "day_obs_to_time",
     "day_obs_sunset_sunrise",
 ]
 
@@ -37,6 +38,15 @@ def day_obs_int_to_str(day_obs: int) -> str:
 def day_obs_str_to_int(day_obs: str) -> int:
     """Day_obs string YYYY-MM-DD to integer YYYYMMDD."""
     return int(day_obs.replace("-", ""))
+
+
+def day_obs_to_time(day_obs: int | str) -> Time:
+    """Day_obs int or string to astropy Time."""
+    try:
+        int(day_obs)
+        return Time(f"{day_obs_int_to_str(day_obs)}T12:00:00", format="isot", scale="tai")
+    except ValueError:
+        return Time(f"{day_obs}T12:00:00", format="isot", scale="tai")
 
 
 def day_obs_sunset_sunrise(day_obs: str | int, sun_alt: float = -12) -> tuple[Time, Time]:
