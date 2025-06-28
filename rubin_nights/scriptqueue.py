@@ -35,7 +35,8 @@ __all__ = [
     "get_script_state",
     "get_script_status",
     "get_error_codes",
-    "get_tracebacks",
+    "get_scriptqueue_tracebacks",
+    "get_all_tracebacks",
     "get_narrative_and_errors",
     "get_exposure_info",
     "get_consolidated_messages",
@@ -596,7 +597,7 @@ def get_error_codes(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -
     return errs
 
 
-def get_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
+def get_scriptqueue_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
     """Find tracebacks in lsst.sal.Script.logevent_logMessage.
 
     Parameters
@@ -618,15 +619,9 @@ def get_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) ->
     query = 'select message, traceback, salIndex from "lsst.sal.Script.logevent_logMessage"'
     query += f"where time >= '{t_start.isot}Z' and time <= '{t_end.isot}Z' and traceback != ''"
     traceback_messages = efd_client.query(query)
-    traceback_messages.rename({"salIndex": "script_salIndex"}, axis=1, inplace=True)
-    # First check if there are any messages to query.
-    if len(traceback_messages) > 0:
-        # Only keep the lines where the traceback wasn't empty.
-        traceback_messages.query('traceback != ""', inplace=True)
     # Then check if there are any *traceback* messages to query.
     if len(traceback_messages) > 0:
-        # Only keep the lines where the traceback wasn't empty.
-        traceback_messages.query('traceback != ""', inplace=True)
+        traceback_messages.rename({"salIndex": "script_salIndex"}, axis=1, inplace=True)
 
         # Add salIndex of queue where the script was run
         def queue_from_script_salindex(x):
@@ -645,6 +640,86 @@ def get_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) ->
     # Going to rename some of these columns here to slot into scriptqueue
     traceback_messages.rename({"traceback": "description", "message": "classname"}, axis=1, inplace=True)
     return traceback_messages
+
+
+def get_all_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
+    """Find tracebacks all logevent_logMessages.
+
+    This finds all tracebacks, for all CSCs and thus both telescopes.
+
+    Parameters
+    ----------
+    t_start : `astropy.Time`
+        The time to start searching for script events.
+    t_end : `astropy.Time`
+        The time at which to end searching for script events.
+    efd_client : `EfdQueryClient`
+        EfdClient to query the efd.
+
+    Returns
+    -------
+    tracebacks : `pd.DataFrame`
+        DataFrame containing tracebacks.
+    """
+    topics = efd_client.get_topics()
+    log_topics = [t for t in topics if "logMessage" in t]
+    tracebacks = []
+    for topic in log_topics:
+        csc = topic.split(".")[-2]
+        query = f'select * from "{topic}"'
+        query += f"where time >= '{t_start.isot}Z' and time <= '{t_end.isot}Z' and traceback != ''"
+        traceback_messages = efd_client.query(query)
+        # Then check if there are any *traceback* messages to query.
+        if len(traceback_messages) > 0:
+
+            if "salIndex" not in traceback_messages.columns:
+                if csc.startswith("AT"):
+                    traceback_messages["salIndex"] = 2
+                else:
+                    traceback_messages["salIndex"] = 1
+
+            traceback_messages.rename({"salIndex": "script_salIndex"}, axis=1, inplace=True)
+
+            # Add salIndex of queue where the script was run
+            def queue_from_script_salindex(x):
+                return int(str(x.script_salIndex)[0])
+
+            traceback_messages["salIndex"] = traceback_messages.apply(queue_from_script_salindex, axis=1)
+
+            def make_config_message(x, csc):
+                if (x.script_salIndex) > 3:
+                    message = f"{csc} traceback for {x.script_salIndex}"
+                else:
+                    message = f"{csc} traceback"
+                return message
+
+            traceback_messages["config"] = traceback_messages.apply(
+                make_config_message,
+                args=[
+                    csc,
+                ],
+                axis=1,
+            )
+            tracebacks.append(traceback_messages)
+    # Combine all the tracebacks and add some columns.
+    traceback_messages = pd.concat(tracebacks).sort_index()
+    traceback_messages["finalScriptState"] = "Traceback"
+    traceback_messages["timestampProcessStart"] = (
+        traceback_messages.index.copy().tz_localize(None).astype("datetime64[ns]")
+    )
+    # Going to rename some of these columns here to slot into scriptqueue
+    traceback_messages.rename({"traceback": "description", "message": "classname"}, axis=1, inplace=True)
+
+    cols_back = [
+        "classname",
+        "description",
+        "script_salIndex",
+        "salIndex",
+        "config",
+        "finalScriptState",
+        "timestampProcessStart",
+    ]
+    return traceback_messages[cols_back]
 
 
 def get_narrative_and_errors(
@@ -880,7 +955,7 @@ def get_consolidated_messages(t_start: Time, t_end: Time, endpoints: dict) -> tu
     # 'salIndex', 'blockId', 'finalScriptState', 'scriptState',
     # 'timestampProcessStart', 'timestampConfigureEnd',
     # 'timestampRunStart', 'timestampProcessEnd']
-    tracebacks = get_tracebacks(t_start, t_end, endpoints["efd"])
+    tracebacks = get_scriptqueue_tracebacks(t_start, t_end, endpoints["efd"])
     scheduler_configs = get_scheduler_configs(t_start, t_end, endpoints["efd"], endpoints["obsenv"])
     script_status = pd.concat([scheduler_configs, script_status, tracebacks])
     script_status.rename({"classname": "name", "finalScriptState": "finalStatus"}, axis=1, inplace=True)
