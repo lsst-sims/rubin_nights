@@ -3,6 +3,7 @@ import logging
 import numpy as np
 import pandas as pd
 from astropy.time import Time
+from lsst.ts.xml.sal_enums import State as CSCState
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +45,16 @@ def targets_and_visits(
     visits : `pd.DataFrame`
         A dataframe of all of the visits during the time period.
     """
-
+    # Fetch the targets
     topic = "lsst.sal.Scheduler.logevent_target"
     targets = endpoints["efd"].select_time_series(topic, "*", t_start, t_end, index=queue_index)
     targets = targets.query("snapshotUri != ''")
+    # Make total requested exposure time for target if >1 numexp
+    cols = [c for c in targets if "exposureTimes" in c]
+    targets["target_exptime"] = targets[cols].sum(axis=1)
     logger.debug(f"{len(targets)} targets events")
 
+    # Fetch the observations
     topic = "lsst.sal.Scheduler.logevent_observation"
     fields = [
         "additionalInformation",
@@ -69,10 +74,13 @@ def targets_and_visits(
         observations = pd.DataFrame([], columns=fields + ["time"])
     logger.debug(f"{len(observations)} observation events")
 
+    # Fetch and consolidate the nextVisits
     topic = "lsst.sal.ScriptQueue.logevent_nextVisit"
     nextvisits = endpoints["efd"].select_time_series(topic, "*", t_start, t_end, index=queue_index)
     logger.debug(f"{len(nextvisits)} next visit events")
-    # group next visit events on salindex, when the target is the same
+    # Multiple next visit events can be issued for the same target, so
+    # group next visit events on script salindex if the target is the same.
+    # Onlythe last groupId will be the acquired exposure.
     nextvisits = (
         nextvisits.reset_index()
         .groupby(["scriptSalIndex", "position0", "position1", "cameraAngle"])
@@ -82,6 +90,7 @@ def targets_and_visits(
     nextvisits = nextvisits.set_index("time")
     logger.debug(f"{len(nextvisits)} next visit events for unique targets")
 
+    # Fetch the visits from the ConsDB
     if queue_index == 2:
         instrument = "latiss"
     else:
@@ -89,37 +98,59 @@ def targets_and_visits(
     visits = endpoints["consdb"].get_visits(instrument, t_start, t_end)
     logger.debug(f"{len(visits)} visits")
 
-    # In theory, targets and observations could be merged directly on targetId
-    # However, targetId is not yet unique across FBS re-enable times
-    # (the observations will have unique targetId, but targets which were
-    # not actually attempted may be duplicate targetIds)
-    if len(targets) == 0:
-        to = pd.DataFrame([], columns=["targetId", "blockId", "skyAngle"])
-    elif len(observations) == 0:
-        new_df = pd.DataFrame(
-            np.zeros((len(targets.index.values), len(observations.columns.values))),
-            columns=observations.columns.values,
-            index=targets.index,
-        )
-        new_df.rename({"time": "time_o"}, axis=1, inplace=True)
-        new_df.time_o = np.nan
-        to = pd.merge(targets, new_df, left_index=True, right_index=True, suffixes=("", "_o"))
-        to.reset_index("time", inplace=True)
-    else:
-        # Use merge_asof so that we can remove targetId matches
-        # which are not actually of the same target
-        to = pd.merge_asof(
-            targets.sort_values("targetId").reset_index("time"),
-            observations.sort_values("targetId").reset_index("time"),
-            on="targetId",
-            left_by=["ra", "decl", "skyAngle"],
-            right_by=["ra", "decl", "rotSkyPos"],
-            suffixes=("", "_o"),
-            allow_exact_matches=True,
-            direction="forward",
-        )
-        to.sort_values(by="time", inplace=True)
+    # In theory, targets and observations could be merged directly on targetId.
+    # However, targetId is not unique across Scheduler re-enable times.
+    # This can be due to resetting unused targetIds OR it could be due
+    # to using different FBS databases for recording observations.
+    # Merge only within periods where the scheduler was continuously enabled.
+
+    # Scheduler restarts:
+    enabled_state = CSCState.ENABLED.value  # noqa: F841
+    topic = "lsst.sal.Scheduler.logevent_summaryState"
+    fields = ["summaryState"]
+    dd = endpoints["efd"].select_time_series(topic, fields, t_start, t_end, index=queue_index)
+    # Identify re-enable times
+    restarts = dd.query("summaryState == @enabled_state")
+
+    target_idxs = np.searchsorted(targets.index.values, restarts.index.values)
+    target_idx_start = np.concatenate([np.array([0]), target_idxs])
+    target_idx_end = np.concatenate([target_idxs, np.array([len(targets)])])
+    obs_idxs = np.searchsorted(observations.index.values, restarts.index.values)
+    obs_idx_start = np.concatenate([np.array([0]), obs_idxs])
+    obs_idx_end = np.concatenate([obs_idxs, np.array([len(targets)])])
+    to = []
+    for i in range(len(target_idx_start)):
+        t_targets = targets.iloc[target_idx_start[i] : target_idx_end[i]]
+        t_observations = observations.iloc[obs_idx_start[i] : obs_idx_end[i]]
+        if len(t_targets) == 0:
+            # Nothing to merge/add from this period.
+            continue
+        elif len(t_observations) == 0:
+            new_df = pd.DataFrame(
+                np.zeros((len(t_targets.index.values), len(observations.columns.values))),
+                columns=observations.columns.values,
+                index=t_targets.index,
+            )
+            new_df.rename({"time": "time_o"}, axis=1, inplace=True)
+            new_df.time_o = np.nan
+            t_to = pd.merge(targets, new_df, left_index=True, right_index=True, suffixes=("", "_o"))
+            t_to.reset_index("time", inplace=True)
+        else:
+            t_to = pd.merge_asof(
+                t_targets.sort_values("targetId").reset_index("time"),
+                t_observations.sort_values("targetId").reset_index("time"),
+                on="targetId",
+                left_by=["ra", "decl", "skyAngle"],
+                right_by=["ra", "decl", "rotSkyPos"],
+                suffixes=("", "_o"),
+                allow_exact_matches=True,
+                direction="forward",
+            )
+            t_to.sort_values(by="time", inplace=True)
+        to.append(t_to)
+    to = pd.concat(to)
     to = to.astype({"targetId": int, "blockId": int, "skyAngle": float})
+    to.drop([c for c in to.columns if "private" in c], axis=1, inplace=True)
     logger.debug(f"Joined targets and observations for {len(to)} events")
 
     # If either visit or nextvisit are empty, just quit here.
@@ -130,8 +161,7 @@ def targets_and_visits(
         logger.warning("Could not find any nextVisits, can't link to visits")
         return pd.DataFrame([]), [], to, nextvisits, visits
 
-    # nextVisit to visits groupId should be unique --
-    # for visits that are acquired
+    # nextVisit to visits groupId should be unique
     nv = pd.merge(
         visits,
         nextvisits.reset_index("time"),
@@ -145,6 +175,7 @@ def targets_and_visits(
     scriptSalIndex = np.where(np.isnan(nv["scriptSalIndex"].values), 0, nv["scriptSalIndex"].values)
     nv["scriptSalIndex"] = scriptSalIndex
     nv = nv.astype({"visit_id": int, "scriptSalIndex": int, "cameraAngle": float})
+    nv.drop([c for c in nv.columns if "private" in c], axis=1, inplace=True)
     logger.debug(f"Joined nextvisit and visits for {len(nv)} records")
 
     # Join targets and next visit BUT blockId == salScriptId
@@ -152,6 +183,7 @@ def targets_and_visits(
     # We can narrow down the links using the angle of the rotator
     # (better would be to fetch times of restarts, but this is cheap)
     # (works for science visits, but other programs may not)
+
     vt = pd.merge_asof(
         to.sort_values("blockId"),
         nv.sort_values("scriptSalIndex"),
@@ -202,7 +234,7 @@ def targets_and_visits(
 
 
 def flag_potential_bad_visits(
-    target_visits: pd.DataFrame, extinction: float = 1, no_quicklook: bool = True
+    target_visits: pd.DataFrame, extinction: float = 1.5, no_quicklook: bool = True
 ) -> list[str]:
     """Flag potential bad visits within the target_visits dataframe.
 
@@ -254,4 +286,4 @@ def flag_potential_bad_visits(
         f" and {len(failed_obs)} visits with missing observation events,"
         f" out of a total of {len(target_visits)} visits."
     )
-    return target_visits.iloc[issues]["visit_id"]
+    return list(target_visits.iloc[issues]["visit_id"].values)
