@@ -432,7 +432,7 @@ class ConsDb:
         good_visits : `pd.DataFrame`
             The visits dataframe but with bad_visit_ids removed.
         """
-        if len(bad_visit_ids) > 0:
+        if bad_visit_ids is not None and len(bad_visit_ids) > 0:
             return visits.query("visit_id not in @bad_visit_ids")
 
 
