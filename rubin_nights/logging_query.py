@@ -186,8 +186,9 @@ class NightReportClient(LoggingServiceClient):
         html += "<p> <strong>Summary:</strong><br>"
         summary = re.sub(r"[\n]{2,}", "\n", log["summary"]).replace("\n", "<br>")
         html += f"{summary}"
-        html += "<p> <strong>Status:</strong><br>"
-        html += f"{log['telescope_status'].replace('\n', '<br>')}"
+        if "telescope_status" in log:
+            html += "<p> <strong>Status:</strong><br>"
+            html += f"{log['telescope_status'].replace('\n', '<br>')}"
         return html
 
 
