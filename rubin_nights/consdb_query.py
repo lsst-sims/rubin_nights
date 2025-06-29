@@ -11,26 +11,8 @@ import pyvo
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
 
-try:
-    from rubin_scheduler.site_models import Almanac
-    from rubin_scheduler.utils import (
-        Site,
-        angular_separation,
-        approx_altaz2pa,
-        approx_ra_dec2_alt_az,
-        rotation_converter,
-    )
-
-    HAS_RUBIN_SCHEDULER = True
-except ModuleNotFoundError:
-    HAS_RUBIN_SCHEDULER = False
-
-try:
-    from rubin_sim.phot_utils import predicted_zeropoint, predicted_zeropoint_hardware
-
-    HAS_RUBIN_SIM = True
-except ModuleNotFoundError:
-    HAS_RUBIN_SIM = False
+from .rubin_scheduler_addons import add_rubin_scheduler_cols
+from .rubin_sim_addons import add_rubin_sim_cols
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +21,7 @@ __all__ = ["fetch_excluded_visits", "ConsDbTap", "ConsDbFastAPI"]
 
 GAUSSIAN_FWHM_OVER_SIGMA: float = 2.0 * np.sqrt(2.0 * np.log(2.0))
 PLATESCALE = 0.2
-ZEROPOINT_OFFSETS_LSSTCAM = {"u": 0.0279, "g": 0.048, "r": 0.109, "i": 0.0919, "z": 0.0959, "y": 0.0383}
-ZEROPOINT_OFFSETS_LSSTCOMCAM = {"u": 0.26, "g": -0.14, "r": -0.09, "i": -0.10, "z": -0.13, "y": -0.18}
+
 
 BAD_VISITS_LSSTCAM = (
     "https://raw.githubusercontent.com/lsst-dm/excluded_visits/" "refs/heads/main/LSSTCam/bad.ecsv"
@@ -143,179 +124,6 @@ class ConsDb:
             visits = self.augment_visits(visits, instrument)
         return visits
 
-    def add_rubin_sim_cols(
-        self,
-        visits: pd.DataFrame,
-        instrument: str = "lsstcam",
-        predicted_zeropoint_offsets: dict | None = None,
-    ) -> pd.DataFrame:
-        """Add columns that require rubin_sim:
-        predicted zeropoint and converted skybackground (mag/sq arcsec).
-
-        Parameters
-        ----------
-        visits : `pd.DataFrame`
-            The visit information from cdb_{instrument}.visit1 and
-            cdb_{instrument}.visit1_quicklook (if available).
-        instrument : `str`
-            The instrument for the visits.
-            Used to select the appropriate zeropoint offsets, if not provided.
-        predicted_zeropoint_offsets : `dict` { `str`: `float` }
-            Offsets to add to the predicted zeropoint values.
-            If None, will pick appropriate defaults based on instrument.
-
-        Returns
-        -------
-        visits : `pd.DataFrame`
-            The visit information, with additional columns added for
-            predicted zeropoint values, sky background in magnitudes,
-            an estimated m5 depth (from zeropoint + sky).
-        """
-        if predicted_zeropoint_offsets is None:
-            if instrument.lower() == "lsstcam":
-                predicted_zeropoint_offsets = ZEROPOINT_OFFSETS_LSSTCAM
-            elif instrument.lower() == "lsstcomcam":
-                predicted_zeropoint_offsets = ZEROPOINT_OFFSETS_LSSTCOMCAM
-            else:
-                predicted_zeropoint_offsets = {"u": 0, "g": 0, "r": 0, "i": 0, "z": 0, "y": 0}
-
-        # Add new columns
-        new_cols = ["zero_point_1s", "zero_point_1s_pred", "clouds", "sky_bg_median_mag", "cat_m5"]
-        new_df = pd.DataFrame(np.zeros((len(visits), len(new_cols))), columns=new_cols, index=visits.index)
-        if all(new_cols) in visits.columns:
-            logger.debug("All columns already present in visits.")
-            return visits
-        else:
-            for n in new_cols:
-                if n in visits.columns:
-                    visits.drop(labels=n, axis=1, inplace=True)
-
-        visits = visits.merge(new_df, right_index=True, left_index=True)
-
-        def calc_predicted_zeropoints(x):
-            if x.shut_time == 0 or np.isnan(x.shut_time):
-                x.zero_point_1s = np.nan
-                x.zero_point_1s_pred = np.nan
-                x.sky_bg_median_mag = np.nan
-                x.cat_m5 = np.nan
-                return x
-            try:
-                x.zero_point_1s = x.zero_point_median - 2.5 * np.log10(x.shut_time)
-                x.zero_point_1s_pred = (
-                    predicted_zeropoint(x.band, x.airmass, 1) + predicted_zeropoint_offsets[x.band]
-                )
-                x.clouds = x.zero_point_1s - x.zero_point_1s_pred
-                # Convert sky counts/pixel to magnitude/arcsecond^2
-                zp_sky = (
-                    predicted_zeropoint_hardware(x.band, x.shut_time) + predicted_zeropoint_offsets[x.band]
-                )
-                x.sky_bg_median_mag = -2.5 * np.log10(x.sky_bg_median / PLATESCALE**2) + zp_sky
-                # Do an approximation for the instrumental noise (in e-)
-                noise_instr_sq = 13
-                total_noise_sq = x.psf_area_median * (x.sky_bg_median + noise_instr_sq)
-                counts_5sigma = np.sqrt(total_noise_sq) * 5
-                x.cat_m5 = -2.5 * np.log10(counts_5sigma) + x.zero_point_median
-            except KeyError:
-                # Some bands aren't in the lookup (such as pinhole)
-                # And some visits
-                pass
-            return x
-
-        try:
-            visits = visits.apply(calc_predicted_zeropoints, axis=1)
-        except AttributeError:
-            # Missing quicklook columns for psf or zeropoint or sky
-            logger.debug("Missing columns for psf_sigma_median, zero_point_median or sky_bg_median.")
-            pass
-
-        return visits
-
-    def add_rubin_scheduler_cols(self, visits: pd.DataFrame, instrument: str = "lsstcam") -> pd.DataFrame:
-        """Add columns that require rubin_scheduler:
-        parallactic angle and rotator angle,
-
-        Parameters
-        ----------
-        visits : `pd.DataFrame`
-            The visit information from cdb_{instrument}.visit1 and
-            cdb_{instrument}.visit1_quicklook (if available).
-        instrument : `str`
-            The instrument for the visits.
-            Used to calculate the approproximate rotTelPos value.
-
-        Returns
-        -------
-        visits : `pd.DataFrame`
-            The visit information, with additional columns added for
-            predicted zeropoint values, sky background in magnitudes,
-            an estimated m5 depth (from zeropoint + sky).
-        """
-        # Add new columns
-        new_cols = [
-            "lst",
-            "HA",
-            "approx_pa",
-            "approx_rotTelPos",
-            "moon_alt",
-            "moon_az",
-            "moon_RA",
-            "moon_Dec",
-            "moon_distance",
-            "moon_illum",
-        ]
-        new_df = pd.DataFrame(np.zeros((len(visits), len(new_cols))), columns=new_cols, index=visits.index)
-
-        if all(new_cols) in visits.columns:
-            logger.debug("All columns already present in visits.")
-            return visits
-        else:
-            for n in new_cols:
-                if n in visits.columns:
-                    visits.drop(labels=n, axis=1, inplace=True)
-
-        # Add in physical rotator angle, parallactic angle
-        # (these will be added by ConsDB in the future
-        lsst_loc = Site("LSST")
-        times = Time(
-            visits["obs_start_mjd"], format="mjd", scale="tai", location=lsst_loc.to_earth_location()
-        )
-        lst = times.sidereal_time("mean").deg
-        new_df["lst"] = lst
-        new_df["HA"] = (visits["s_ra"] - lst) / 360 * 12 % 24
-
-        almanac = Almanac()
-
-        avals = almanac.get_sun_moon_positions(visits["exp_midpt_mjd"].values)
-        new_df["moon_alt"], new_df["moon_az"] = np.degrees([avals["moon_alt"][0], avals["moon_az"][0]])
-        new_df["moon_RA"], new_df["moon_Dec"] = np.degrees([avals["moon_RA"][0], avals["moon_dec"][0]])
-        new_df["moon_distance"] = angular_separation(
-            new_df["moon_RA"].values, new_df["moon_Dec"].values, visits["s_ra"].values, visits["s_dec"].values
-        )
-        new_df["moon_illum"] = almanac.get_sun_moon_positions(visits["exp_midpt_mjd"].values)["moon_phase"]
-
-        alt, az = approx_ra_dec2_alt_az(
-            visits.s_ra.values,
-            visits.s_dec.values,
-            lsst_loc.latitude,
-            lsst_loc.longitude,
-            visits.exp_midpt_mjd.values,
-            lmst=None,
-        )
-        pa = approx_altaz2pa(alt, az, lsst_loc.latitude)
-        new_df["approx_pa"] = pa
-
-        if instrument.lower() != "latiss":
-            if instrument.lower() == "lsstcomcam":
-                tele = "comcam"
-            else:
-                tele = "rubin"
-            rc = rotation_converter(telescope=tele)
-            rotTelPos = rc.rotskypos2rottelpos(visits.sky_rotation.values, new_df["approx_pa"].values)
-            new_df["approx_rotTelPos"] = rotTelPos
-
-        visits = visits.merge(new_df, right_index=True, left_index=True)
-        return visits
-
     def augment_visits(
         self,
         visits: pd.DataFrame,
@@ -405,11 +213,8 @@ class ConsDb:
         ).T
         visits = visits.merge(new_df, right_index=True, left_index=True)
 
-        if HAS_RUBIN_SCHEDULER:
-            visits = self.add_rubin_scheduler_cols(visits, instrument)
-
-        if HAS_RUBIN_SIM:
-            visits = self.add_rubin_sim_cols(visits, instrument, predicted_zeropoint_offsets)
+        visits = add_rubin_scheduler_cols(visits, instrument)
+        visits = add_rubin_sim_cols(visits, instrument, predicted_zeropoint_offsets)
 
         return visits
 
