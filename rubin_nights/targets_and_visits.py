@@ -80,7 +80,7 @@ def targets_and_visits(
     logger.debug(f"{len(nextvisits)} next visit events")
     # Multiple next visit events can be issued for the same target, so
     # group next visit events on script salindex if the target is the same.
-    # Onlythe last groupId will be the acquired exposure.
+    # Only the last groupId will be the acquired exposure.
     nextvisits = (
         nextvisits.reset_index()
         .groupby(["scriptSalIndex", "position0", "position1", "cameraAngle"])

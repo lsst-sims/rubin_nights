@@ -213,5 +213,13 @@ def add_model_slew_times(
     slewing = pd.DataFrame(
         [model_slewtimes, model_slewtimes_ideal], index=["slew_model", "slew_model_ideal"]
     ).T
+
+    # Add also the distance on the sky between the visits (degrees)
+    # This isn't always the slew distance, but it's about the best we can do here
+    distances = angular_separation(
+        visits.s_ra[1:].values, visits.s_dec[1:].values, visits.s_ra[0:-1].values, visits.s_dec[0:-1].values
+    )
+    slewing["slew_distance"] = np.concatenate([np.array([0]), distances])
+
     visits = visits.merge(slewing, right_index=True, left_index=True)
     return visits, slewing
