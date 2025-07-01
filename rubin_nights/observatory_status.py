@@ -1,10 +1,102 @@
+import logging
 import numpy as np
 import pandas as pd
 from astropy.time import Time
+from lsst.ts.xml.sal_enums import State as CSCState
 
 from .influx_query import InfluxQueryClient
 
 __all__ = ["get_rotator_limits", "get_tma_limits"]
+
+logger = logging.getLogger(__name__)
+
+
+def get_mtm1m3_slewflags(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
+    """Dataframe containing slew times calculated
+    from the mtm1m3 clear/set SlewFlags, and linked to groupId using nextVisit.
+
+    Parameters
+    ----------
+    t_start : `astropy.Time`
+        Time of the start of the events.
+    t_end : `astropy.Time`
+        Time of the end of the events.
+    endpoints : `dict`
+        Endpoints is a dictionary of client connections to the EFD and the
+        ConsDb, such as returned by `rubin_nights.connections.get_clients`.
+
+    Returns
+    -------
+    mt_slews : `pd.DataFrame`
+        Dataframe containing groupId, scriptSalIndex, and mt_slew_time.
+    """
+    # Get MTM1M3 slew flags
+    slew_start = efd_client.select_time_series(
+        "lsst.sal.MTM1M3.command_setSlewFlag", ["private_identity"], t_start, t_end
+    )
+    slew_end = efd_client.select_time_series(
+        "lsst.sal.MTM1M3.command_clearSlewFlag", ["private_identity"], t_start, t_end
+    )
+    # There are occasional things that look like errors?
+    slew_start = slew_start.query("private_identity.str.contains('Script:')")
+    slew_end = slew_end.query("private_identity.str.contains('Script:')")
+    slew_start["scriptSalIndex"] = slew_start.private_identity.str.strip("Script:").astype(int)
+    slew_end["scriptSalIndex"] = slew_end.private_identity.str.strip("Script:").astype(int)
+
+    # Check which queues to check for restarts (probably just 1)
+    # queue_indexes = np.unique(np.floor(slew_start.scriptSalIndex.values / 1e5))
+
+    # ScriptQueue restarts -- should do this
+    # slew_start_idx = []
+    # slew_end_idx = []
+    # for queue_index in queue_indexes:
+    #     enabled_state = CSCState.ENABLED.value  # noqa: F841
+    #     topic = "lsst.sal.ScriptQueue.logevent_summaryState"
+    #     fields = ["summaryState"]
+    #     dd = efd_client.select_time_series(topic, fields, t_start, t_end, index=int(queue_index))
+    #     if len(dd) > 0:
+    #         # Identify re-enable times
+    #         restarts = dd.query("summaryState == @enabled_state")
+    #         slew_start_idx.append(np.searchsorted(slew_start.index.values, restarts.index.values))
+    #         slew_end_idx.append(np.searchsorted(slew_end.index.values, restarts.index.values))
+
+    slew_start = slew_start.reset_index().groupby("scriptSalIndex").agg({"index": "first"}).reset_index()
+    slew_end = slew_end.reset_index().groupby("scriptSalIndex").agg({"index": "last"}).reset_index()
+
+    mt_slew = pd.merge(
+        slew_start,
+        slew_end,
+        how="outer",
+        left_on="scriptSalIndex",
+        right_on="scriptSalIndex",
+        suffixes=["_start", "_end"],
+    )
+    mt_slew["mt_slew_time"] = (mt_slew["index_end"] - mt_slew["index_start"]) / np.timedelta64(1, "s")
+
+    missing = set(slew_start.scriptSalIndex.values).symmetric_difference(set(slew_end.scriptSalIndex.values))
+    logging.debug(
+        f"Found {len(slew_start)} slew starts and {len(slew_end)} slew ends, with "
+        f"{len(slew_start.scriptSalIndex.unique())} and {len(slew_end.scriptSalIndex.unique())} "
+        f"unique script salIndexes each."
+    )
+    logging.debug(f"Differences include {missing} script salIndex")
+
+    # Get nextVisit events as well, to get groupId.
+    topic = "lsst.sal.ScriptQueue.logevent_nextVisit"
+    nextvisits = efd_client.select_time_series(topic, "*", t_start, t_end, index=1)
+    # Multiple next visit events can be issued for the same target, so
+    # group next visit events on script salindex if the target is the same.
+    # Only the last groupId will be the acquired exposure.
+    nextvisits = (
+        nextvisits.reset_index()
+        .groupby(["scriptSalIndex", "position0", "position1", "cameraAngle"])
+        .last()
+        .reset_index()
+    )
+    nextvisits = nextvisits.set_index("index")
+
+    mt_slew = pd.merge(nextvisits[["groupId", "scriptSalIndex"]], mt_slew, how="left", on="scriptSalIndex")
+    return mt_slew
 
 
 def get_rotator_limits(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
