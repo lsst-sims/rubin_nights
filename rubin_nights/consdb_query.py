@@ -37,7 +37,7 @@ def fetch_excluded_visits(instrument: str = "lsstcam") -> list[str]:
 
     Parameters
     ----------
-    instrument : `str`
+    instrument
         Which bad.ecsv file to retrieve.
         The options are lsstcam or lsstcomcam.
 
@@ -75,18 +75,18 @@ class ConsDb:
 
         Parameters
         ----------
-        instrument : `str`
+        instrument
             The instrument to search for.
             Typical values would include lsstcomcam, latiss, and lsstcam.
             See https://sdm-schemas.lsst.io/ for more details.
-        t_start : `Time` or None
+        t_start
             The earliest time to match obs_start.
-        t_end : `Time` or None
+        t_end
             The latest time to match obs_start.
-        visit_constraint : `str` or None
+        visit_constraint
             A constraint to apply to the cdb_{instrument}.visit1 table.
             Example: `"science_program = 'BLOCK-365'"`
-        augment_visits : `boolean
+        augment_visits
             If True, immediately call consdb.augment_visits after fetching
             visit1 and visit1_quicklook values from the ConsDB.
 
@@ -134,13 +134,13 @@ class ConsDb:
 
         Parameters
         ----------
-        visits : `pd.DataFrame`
+        visits
             The visit information from cdb_{instrument}.visit1 and
             cdb_{instrument}.visit1_quicklook (if available).
-        instrument : `str`
+        instrument
             The instrument for the visits.
             Used to calculate the approproximate rotTelPos value.
-        predicted_zeropoint_offsets : `dict` { `str`: `float` }
+        predicted_zeropoint_offsets
             Offsets to add to the predicted zeropoint values.
             If None, will pick appropriate defaults based on instrument.
 

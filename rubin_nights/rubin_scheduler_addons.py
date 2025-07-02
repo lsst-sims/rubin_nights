@@ -33,10 +33,10 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
 
     Parameters
     ----------
-    visits : `pd.DataFrame`
+    visits
         The visit information from cdb_{instrument}.visit1 and
         cdb_{instrument}.visit1_quicklook (if available).
-    instrument : `str`
+    instrument
         The instrument for the visits.
         Used to calculate the approproximate rotTelPos value.
 
@@ -117,7 +117,9 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
 
 
 def add_model_slew_times(
-    visits: pd.DataFrame, efd_client: InfluxQueryClient
+    visits: pd.DataFrame,
+    efd_client: InfluxQueryClient,
+    model_settle: float = 1,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """ "Add model (applied tma limits plus FBS-default tma limits) calculated
     slewtimes to visits dataframe.
@@ -126,13 +128,17 @@ def add_model_slew_times(
 
     Parameters
     ----------
-    visits : `pd.DataFrame`
+    visits
         The visit information. Expected to contain columns of
         s_ra, s_dec, sky_rotation, obs_start_mjd and band for slewtime
         calculation.
-    efd_client : `InfluxQueryClient`
+    efd_client
         Used to query the EFD for the applied TMA limits at the time
         of the visits.
+    model_settle
+        The amount of settle time to add to the model_slew.
+        This should make the model_slew time match the TMAevent time.
+        Might vary over time.
 
     Returns
     -------
@@ -164,8 +170,7 @@ def add_model_slew_times(
     # Set up current kinematic model.
     kinematic_model = KinemModel(mjd0=t_start.mjd - 0.1)
     kinematic_model.setup_camera(band_changetime=140, **rotator_movement(100))
-    current_model_settle = 0
-    kinematic_model.setup_telescope(settle_time=current_model_settle)
+    kinematic_model.setup_telescope(settle_time=model_settle)
     kinematic_model.mount_bands(["u", "g", "r", "i", "z", "y"])
 
     model_slewtimes = {}  # current performance model
@@ -181,7 +186,7 @@ def add_model_slew_times(
             for visitid, v in night_visits.iterrows():
                 last_idx = np.where(tma_speeds.index.values - np.datetime64(v.obs_start) < 0)[0][-1]
                 tma = dict(tma_speeds.iloc[last_idx])
-                tma["settle_time"] = current_model_settle
+                tma["settle_time"] = model_settle
                 # Change speeds on non-ideal kinematic model
                 kinematic_model.setup_telescope(**tma)
 

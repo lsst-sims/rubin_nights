@@ -16,14 +16,14 @@ class InfluxQueryClient:
 
     Parameters
     ----------
-    site : `str`, optional
+    site
         The site to use for the EFD.
         Note: `usdf-dev` does not exist, and will be replaced with `usdf`.
         Summit is untested.
-    db_name : `str`, optional
+    db_name
         The database to query.
         Default is "efd".
-    results_as_dataframe : `bool`
+    results_as_dataframe
         If True, convert query results into a pandas DataFrame.
         If False, results are returned as a list of dictionaries.
     """
@@ -80,7 +80,7 @@ class InfluxQueryClient:
 
         Parameters
         ----------
-        response : dict
+        response
             The JSON response from the InfluxDB API.
         """
         # One InfluxQL query is submitted at a time
@@ -93,7 +93,7 @@ class InfluxQueryClient:
         result = pd.DataFrame(series.get("values", []), columns=series["columns"])
         if "time" not in result.columns:
             return result
-        result = result.set_index(pd.to_datetime(result["time"])).drop("time", axis=1)
+        result = result.set_index(pd.to_datetime(result["time"], format="ISO8601")).drop("time", axis=1)
         if result.index.tzinfo is None:
             result.index = result.index.tz_localize("UTC")
         if "tags" in series:
@@ -113,7 +113,7 @@ class InfluxQueryClient:
 
         Parameters
         ----------
-        measurement : `str`
+        measurement
             Name of measurement/topic to query for field names.
 
         Returns
@@ -135,14 +135,14 @@ class InfluxQueryClient:
 
         Parameters
         ----------
-        measurement : `str`
+        measurement
             The name of the topic / measurement.
-        fields : `list` [`str`] or None
+        fields
             List of fields to return from the topic.
             Default None uses `*` (all fields).
-        time_range : `tuple` (`Time`, `Time`) or None
+        time_range
             The time window (in astropy.time.Time) to query.
-        filters : `list` (`str`, `str`) or None
+        filters
             The additional conditions to match for the query.
             e.g. ('salIndex', 1) would add salIndex=1 to the query.
 
@@ -183,16 +183,16 @@ class InfluxQueryClient:
 
         Parameters
         ----------
-        measurement : `str`
+        measurement
             The name of the topic / measurement.
-        fields : `list` [`str`] or None
+        fields
             List of fields to return from the topic.
             Default None uses `*` (all fields).
-        num : `int`
+        num
             The maximum number of records to return.
-        time_cut : `Time` or None
+        time_cut
             Search for only records at or before this time.
-        filters : `list` (`str`, `str`) or None
+        filters
             The additional conditions to match for the query.
             e.g. ('salIndex', 1) would add salIndex=1 to the query.
 

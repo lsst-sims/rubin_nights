@@ -83,16 +83,16 @@ def format_html(
 
     Parameters
     ----------
-    efd_and_messages : `pd.DataFrame`
+    efd_and_messages
         The output of scriptqueue.get_consolidated_messages, generally.
         Could be any dataframe matching the general expected format.
-    cols : `list` [`str`]
+    cols
         The columns to show from efd_and_messages.
         Generally will be the columns returned as the second return value
         from scriptqueue.get_consolidated_messages.
-    time_order : `str`
+    time_order
         Show messages in `newest first` or not.
-    show_salIndex : `list` [`int`]
+    show_salIndex
         Which salIndexes to show in the formatted html.
 
     Returns

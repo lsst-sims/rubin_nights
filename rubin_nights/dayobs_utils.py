@@ -54,9 +54,9 @@ def day_obs_sunset_sunrise(day_obs: str | int, sun_alt: float = -12) -> tuple[Ti
 
     Parameters
     ----------
-    day_obs : `str` or `int`
+    day_obs
         Current day_obs in format YYYY-MM-DD or YYYYMMDD
-    sun_alt : `float`
+    sun_alt
         Altitude (in degrees) of the sun at 'sunrise' and 'sunset'.
 
     Returns

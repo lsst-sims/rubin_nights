@@ -31,13 +31,13 @@ def add_rubin_sim_cols(
 
     Parameters
     ----------
-    visits : `pd.DataFrame`
+    visits
         The visit information from cdb_{instrument}.visit1 and
         cdb_{instrument}.visit1_quicklook (if available).
-    instrument : `str`
+    instrument
         The instrument for the visits.
         Used to select the appropriate zeropoint offsets, if not provided.
-    predicted_zeropoint_offsets : `dict` { `str`: `float` }
+    predicted_zeropoint_offsets
         Offsets to add to the predicted zeropoint values.
         If None, will pick appropriate defaults based on instrument.
 

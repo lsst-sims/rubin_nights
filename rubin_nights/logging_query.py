@@ -21,11 +21,11 @@ class LoggingServiceClient:
 
     Parameters
     ----------
-    url : `str`
+    url
         Endpoint URL for the night report.
-    auth : `tuple`
+    auth
         The username and password for authentication.
-    results_as_dataframe : `bool`
+    results_as_dataframe
         If True, convert query results into a pandas DataFrame.
         If False, results are returned as a list of dictionaries.
     """
@@ -62,7 +62,7 @@ class LoggingServiceClient:
 
         Parameters
         ----------
-        params : `dict`
+        params
             Dictionary of parameters for the REST API query.
             See docs for each service for more details.
 
@@ -101,10 +101,10 @@ class NightReportClient(LoggingServiceClient):
 
     Parameters
     ----------
-    api_base : `str`
+    api_base
         Base API for services.
         e.g. https://usdf-rsp.slac.stanford.edu
-    auth : `tuple`
+    auth
         The username and password for authentication.
     """
 
@@ -119,11 +119,11 @@ class NightReportClient(LoggingServiceClient):
 
         Parameters
         ----------
-        day_obs :  `str`
+        day_obs
             The day_obs of the night report. Format YYYY-MM-DD.
-        telescope : `str`
+        telescope
             Fetch the night report logs for this telescope (AuxTel or Simonyi).
-        return_html : `bool`
+        return_html
             Send back an HTML formatted version of the first night report log.
 
         Returns
@@ -197,10 +197,10 @@ class NarrativeLogClient(LoggingServiceClient):
 
     Parameters
     ----------
-    api_base : `str`
+    api_base
         Base API for services.
         e.g. https://usdf-rsp.slac.stanford.edu
-    auth : `tuple`
+    auth
         The username and password for authentication.
     """
 
@@ -213,11 +213,11 @@ class NarrativeLogClient(LoggingServiceClient):
 
         Parameters
         ----------
-        t_start : `Time`
+        t_start
             Time of start of narrative log query.
-        t_end : `Time`
+        t_end
             Time of end of narrative log query.
-        user_params : `dict`, optional
+        user_params
             Additional parameters to add or override defaults.
             Passing `{'limit': int}` can override the default limit.
 
@@ -307,10 +307,10 @@ class ExposureLogClient(LoggingServiceClient):
 
     Parameters
     ----------
-    api_base : `str`
+    api_base
         Base API for services.
         e.g. https://usdf-rsp.slac.stanford.edu
-    auth : `tuple`
+    auth
         The username and password for authentication.
     """
 
@@ -323,11 +323,11 @@ class ExposureLogClient(LoggingServiceClient):
 
         Parameters
         ----------
-        t_start : `Time`
+        t_start
             Time of start of narrative log query.
-        t_end : `Time`
+        t_end
             Time of end of narrative log query.
-        user_params : `dict`, optional
+        user_params
             Additional parameters to add or override defaults.
             Passing `{'limit': int}` can override the default limit.
 

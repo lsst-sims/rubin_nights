@@ -48,7 +48,7 @@ def get_scheduler_configs(
     t_end: Time,
     efd_client: InfluxQueryClient,
     obsenv_client: InfluxQueryClient,
-    queueIndex: int | None = None,
+    queue_index: int | None = None,
 ) -> pd.DataFrame:
     """Return information needed to recreate FBS configuration.
 
@@ -62,20 +62,20 @@ def get_scheduler_configs(
     Searches both the time within t_start to t_end, as well as the last
     configuration applied before this time period.
 
-    Defining queueIndex will search dependencies and configurations for
+    Defining queue_index will search dependencies and configurations for
     that queue only.
 
     Parameters
     ----------
-    t_start : `astropy.Time`
+    t_start
         The time of the start of the period.
-    t_end : `astropy.Time`
+    t_end
         The time at the end of the period.
-    efd_client : `EfdQueryClient`
+    efd_client
         An EFD client pointed to the standard EFD database.
-    obsenv_client : `EfdQueryClient`
-        An EFD client pointed to the obsenv database.
-    queueIndex : `int` or `None`
+    obsenv_client
+        A sync EFD client pointed to the obsenv database.
+    queue_index
         The salIndex of a specific queue (1=Simonyi, 2=Auxtel, 3=OCS).
         If None, queries all queues, but the initial state may be missed.
 
@@ -91,8 +91,8 @@ def get_scheduler_configs(
     # to find the previously enabled obsenv
     topic = "lsst.sal.Scheduler.logevent_configurationApplied"
     fields = ["SchedulerId", "configurations", "salIndex", "schemaVersion", "url", "version"]
-    conf_start = efd_client.select_top_n(topic, fields, num=1, time_cut=t_start, index=queueIndex)
-    conf = efd_client.select_time_series(topic, fields, t_start, t_end, index=queueIndex)
+    conf_start = efd_client.select_top_n(topic, fields, num=1, time_cut=t_start, index=queue_index)
+    conf = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue_index)
     conf = pd.concat([conf_start, conf])
     if len(conf) == 0:
         logger.warning("Could not find scheduler configuration.")
@@ -155,8 +155,10 @@ def get_scheduler_configs(
         "salIndex",
         "version",
     ]
-    deps_start = efd_client.select_top_n(topic, fields, num=1, time_cut=Time(conf.index[0]), index=queueIndex)
-    deps = efd_client.select_time_series(topic, fields, t_start, t_end, index=queueIndex)
+    deps_start = efd_client.select_top_n(
+        topic, fields, num=1, time_cut=Time(conf.index[0]), index=queue_index
+    )
+    deps = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue_index)
     deps = pd.concat([deps_start, deps])
     if len(deps) == 0:
         logger.warning("Could not find scheduler dependencies.")
@@ -230,12 +232,12 @@ def get_script_stream(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
 
     Parameters
     ----------
-    t_start : `astropy.Time`
+    t_start
         The time to start searching for script events.
-    t_end : `astropy.Time`
+    t_end
         The time at which to end searching for script events.
-    efd_client : `EfdQueryClient`
-        EfdClient to query the efd.
+    efd_client
+        Sunc EfdClient to query the efd.
 
     Returns
     -------
@@ -278,18 +280,18 @@ def get_script_stream(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
 
 
 def get_script_state(
-    t_start: Time, t_end: Time, queueIndex: int | None, efd_client: InfluxQueryClient
+    t_start: Time, t_end: Time, queue_index: int | None, efd_client: InfluxQueryClient
 ) -> pd.DataFrame:
     """Get script status from lsst.sal.ScriptQueue.logevent_script topic.
 
     Parameters
     ----------
-    t_start : `astropy.Time`
+    t_start
         The time to start searching for script events.
-    t_end : `astropy.Time`
+    t_end
         The time at which to end searching for script events.
-    efd_client : `EfdQueryClient`
-        EfdClient to query the efd.
+    efd_client
+        Sync EfdClient to query the efd.
 
     Returns
     -------
@@ -323,7 +325,7 @@ def get_script_state(
     ]
     # Providing an integer salIndex will restrict this query to a single queue,
     # but None will query all queues.
-    scripts = efd_client.select_time_series(topic, fields, t_start, t_end, index=queueIndex)
+    scripts = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue_index)
     scripts.rename({"scriptSalIndex": "script_salIndex"}, axis=1, inplace=True)
     if len(scripts) == 0:
         logger.info(f"Found 0 script events in {t_start.utc.iso} to {t_end.utc.iso}.")
@@ -373,13 +375,13 @@ def get_script_status(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
 
     Parameters
     ----------
-    t_start : `astropy.Time`
+    t_start
         The time to start searching for script events.
-    t_end : `astropy.Time`
+    t_end
         The time at which to end searching for script events.
-    efd_client : `EfdQueryClient`
+    efd_client
         EfdClient to query the efd.
-    obsenv_client: `EfdQueryClient`
+    obsenv_client:
         EfdClient to query the obsenv (different database).
 
     Returns
@@ -537,11 +539,11 @@ def get_error_codes(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -
 
     Parameters
     ----------
-    t_start : `astropy.Time`
+    t_start
         The time to start searching for script events.
-    t_end : `astropy.Time`
+    t_end
         The time at which to end searching for script events.
-    efd_client : `EfdQueryClient`
+    efd_client
         EfdClient to query the efd.
 
     Returns
@@ -602,11 +604,11 @@ def get_scriptqueue_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQue
 
     Parameters
     ----------
-    t_start : `astropy.Time`
+    t_start
         The time to start searching for script events.
-    t_end : `astropy.Time`
+    t_end
         The time at which to end searching for script events.
-    efd_client : `EfdQueryClient`
+    efd_client
         EfdClient to query the efd.
 
     Returns
@@ -649,11 +651,11 @@ def get_all_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQueryClient
 
     Parameters
     ----------
-    t_start : `astropy.Time`
+    t_start
         The time to start searching for script events.
-    t_end : `astropy.Time`
+    t_end
         The time at which to end searching for script events.
-    efd_client : `EfdQueryClient`
+    efd_client
         EfdClient to query the efd.
 
     Returns
@@ -729,11 +731,11 @@ def get_narrative_and_errors(
 
     Parameters
     ----------
-    t_start : `astropy.Time`
+    t_start
         The time to start searching for script events.
-    t_end : `astropy.Time`
+    t_end
         The time at which to end searching for script events.
-    efd_client : `EfdQueryClient`
+    efd_client
         EfdClient to query the efd.
     narrative_log_client : `NarrativeLogClient`
 
@@ -775,13 +777,13 @@ def get_exposure_info(
 
     Parameters
     ----------
-    t_start : `astropy.Time`
+    t_start
         The time to start searching for script events.
-    t_end : `astropy.Time`
+    t_end
         The time at which to end searching for script events.
-    efd_client : `EfdQueryClient`
+    efd_client
         EfdClient to query the efd.
-    exposure_log_client : `ExposureLogClient`
+    exposure_log_client
         ExposureLogClient to query for exposure logs.
 
     Returns
@@ -916,13 +918,15 @@ def get_consolidated_messages(t_start: Time, t_end: Time, endpoints: dict) -> tu
 
     Parameters
     ----------
-    t_start : `astropy.Time`
+    t_start
         Time of the start of the messages.
-    t_end : `astropy.Time`
+    t_end
         Time of the end of the messages.
-    endpoints : `dict`
+    endpoints
         Endpoints is a dictionary of client connections to the EFD and the
         ConsDb, such as returned by `rubin_nights.connections.get_clients`.
+        Must have clients for the `efd`, `obsenv`, `narrative_log` and
+        `exposure_log`.
 
     Returns
     -------
@@ -1003,7 +1007,8 @@ def get_consolidated_messages(t_start: Time, t_end: Time, endpoints: dict) -> tu
     # Wrap description, for on-screen spacing
     efd_and_messages["description"] = efd_and_messages["description"].str.wrap(100)
 
-    # Add some big labels which could be used to indicate foldups
+    # Add some big labels which could be used to indicate times where
+    # where activity passes from one job to another.
     # The blocks can be complicated - a single BLOCK can actually
     # trigger multiple AddBlock commands (?)
     # So go back and check command_addBlock directly.
@@ -1021,28 +1026,30 @@ def get_consolidated_messages(t_start: Time, t_end: Time, endpoints: dict) -> tu
     sched_yamls = fbs_resume_times.apply(find_fbs_yaml, args=[scheduler_configs], axis=1)
     sched_yamls = pd.DataFrame(sched_yamls, columns=["id"])
     if len(block_names) > 0 and len(sched_yamls) > 0:
-        foldups = pd.concat([block_names, sched_yamls])
+        job_changes = pd.concat([block_names, sched_yamls])
     elif len(block_names) == 0:
-        foldups = sched_yamls
+        job_changes = sched_yamls
     else:
-        foldups = block_names
+        job_changes = block_names
 
-    if len(foldups) > 0:
+    if len(job_changes) > 0:
         # If we have some addBlock or resumeScheduler events, add those.
         # Note that we could have images and events -- running from scripts.
         # .. but I don't know how to track these.
-        foldups = foldups.sort_index()
-        foldups.rename({"id": "name"}, axis=1, inplace=True)
-        foldups["salIndex"] = SALINDEX_EXTRAS["autolog"]
-        foldups["script_salIndex"] = -1
-        foldups["finalStatus"] = "Job Change"
-        foldups["config"] = ""
-        foldups["description"] = "New BLOCK or FBS configuration"
-        foldups["timestampProcessStart"] = foldups.index.copy()
-        foldups["timestampProcessEnd"] = np.concatenate(
-            [foldups.index[1:].copy(), np.array([efd_and_messages.index[-1]])]
+        job_changes = job_changes.sort_index()
+        job_changes.rename({"id": "name"}, axis=1, inplace=True)
+        job_changes["salIndex"] = SALINDEX_EXTRAS["autolog"]
+        job_changes["script_salIndex"] = -1
+        job_changes["finalStatus"] = "Job Change"
+        job_changes["config"] = ""
+        job_changes["description"] = "New BLOCK or FBS configuration"
+        job_changes["timestampProcessStart"] = job_changes.index.copy()
+        job_changes["timestampProcessEnd"] = np.concatenate(
+            [job_changes.index[1:].copy(), np.array([efd_and_messages.index[-1]])]
         )
-        efd_and_messages = pd.concat([efd_and_messages, foldups]).sort_index()
+        # Slide these a fraction of a second earlier to slot before job change
+        job_changes.index = job_changes.index - pd.Timedelta(1, "ns")
+        efd_and_messages = pd.concat([efd_and_messages, job_changes]).sort_index()
 
     # use an integer index, which makes it easier to pull up values
     # plus avoids occasional failures of time uniqueness

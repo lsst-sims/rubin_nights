@@ -18,7 +18,7 @@ def get_access_token(tokenfile: str | None = None) -> str:
 
     Parameters
     ----------
-    tokenfile : `str` or None
+    tokenfile
         Path to token file.
         Default None will try lsst.rsp.get_access_token or then
         search for ACCESS_TOKEN environment variable.
@@ -56,9 +56,9 @@ def get_clients(tokenfile: str | None = None, site: str | None = None) -> dict:
 
     Parameters
     ----------
-    tokenfile : `str` or None
+    tokenfile
         Passed to `get_access_token`.
-    site : `str` or None
+    site
         Override site location to a preferred site.
         Most likely to be used to specify `usdf-dev` vs `usdf`.
 

@@ -20,14 +20,14 @@ def targets_and_visits(
 
     Parameters
     ----------
-    t_start : `astropy.Time`
+    t_start
         Time of the start of the events.
-    t_end : `astropy.Time`
+    t_end
         Time of the end of the events.
-    endpoints : `dict`
+    endpoints
         Endpoints is a dictionary of client connections to the EFD and the
         ConsDb, such as returned by `rubin_nights.connections.get_clients`.
-    queueIndex : `int`, optional
+    queueIndex
         The SalIndex to query for Targets, corresponding to the Scheduler
         queue. Default of 1 corresponds to the Simonyi queue.
         Using queueIndex = 2 will trigger a request for latiss visits.
@@ -240,17 +240,17 @@ def flag_potential_bad_visits(
 
     Parameters
     ----------
-    target_visits : `pd.DataFrame`
+    target_visits
         Dataframe containing information on the linked
         target-observation-visit content, such as
         from `targets_and_visits`.
-    extinction : `float`
+    extinction
         The magnitudes of extinction to allow before considering a visit
         "bad". This can indicate cloud extinction; however mini-donuts
         or other problems with an observation such as a minor tracking glitch
         can also show up as an offset between the measured and predicted
         zeropoint, just as if it were cloud extinction.
-    no_quicklook : `bool`
+    no_quicklook
         Flag a visit as bad if there was no quicklook information.
         Missing quicklook can indicate the visit failed to process, which
         can be an indicator of a bad visit with giant donuts.

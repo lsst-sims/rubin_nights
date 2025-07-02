@@ -1,4 +1,5 @@
 import logging
+
 import numpy as np
 import pandas as pd
 from astropy.time import Time
@@ -6,24 +7,23 @@ from lsst.ts.xml.sal_enums import State as CSCState
 
 from .influx_query import InfluxQueryClient
 
-__all__ = ["get_rotator_limits", "get_tma_limits"]
+__all__ = ["mtm1m3_slewflag_times", "get_rotator_limits", "get_tma_limits"]
 
 logger = logging.getLogger(__name__)
 
 
-def get_mtm1m3_slewflags(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
+def mtm1m3_slewflag_times(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
     """Dataframe containing slew times calculated
     from the mtm1m3 clear/set SlewFlags, and linked to groupId using nextVisit.
 
     Parameters
     ----------
-    t_start : `astropy.Time`
+    t_start
         Time of the start of the events.
-    t_end : `astropy.Time`
+    t_end
         Time of the end of the events.
-    endpoints : `dict`
-        Endpoints is a dictionary of client connections to the EFD and the
-        ConsDb, such as returned by `rubin_nights.connections.get_clients`.
+    efd_client
+        Sync EFD client.
 
     Returns
     -------
@@ -60,8 +60,8 @@ def get_mtm1m3_slewflags(t_start: Time, t_end: Time, efd_client: InfluxQueryClie
     #         slew_start_idx.append(np.searchsorted(slew_start.index.values, restarts.index.values))
     #         slew_end_idx.append(np.searchsorted(slew_end.index.values, restarts.index.values))
 
-    slew_start = slew_start.reset_index().groupby("scriptSalIndex").agg({"index": "first"}).reset_index()
-    slew_end = slew_end.reset_index().groupby("scriptSalIndex").agg({"index": "last"}).reset_index()
+    slew_start = slew_start.reset_index().groupby("scriptSalIndex").agg({"time": "first"}).reset_index()
+    slew_end = slew_end.reset_index().groupby("scriptSalIndex").agg({"time": "last"}).reset_index()
 
     mt_slew = pd.merge(
         slew_start,
@@ -71,7 +71,7 @@ def get_mtm1m3_slewflags(t_start: Time, t_end: Time, efd_client: InfluxQueryClie
         right_on="scriptSalIndex",
         suffixes=["_start", "_end"],
     )
-    mt_slew["mt_slew_time"] = (mt_slew["index_end"] - mt_slew["index_start"]) / np.timedelta64(1, "s")
+    mt_slew["mt_slew_time"] = (mt_slew["time_end"] - mt_slew["time_start"]) / np.timedelta64(1, "s")
 
     missing = set(slew_start.scriptSalIndex.values).symmetric_difference(set(slew_end.scriptSalIndex.values))
     logging.debug(
@@ -93,7 +93,7 @@ def get_mtm1m3_slewflags(t_start: Time, t_end: Time, efd_client: InfluxQueryClie
         .last()
         .reset_index()
     )
-    nextvisits = nextvisits.set_index("index")
+    nextvisits = nextvisits.set_index("time")
 
     mt_slew = pd.merge(nextvisits[["groupId", "scriptSalIndex"]], mt_slew, how="left", on="scriptSalIndex")
     return mt_slew
