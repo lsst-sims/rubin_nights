@@ -19,10 +19,6 @@ logger = logging.getLogger(__name__)
 __all__ = ["fetch_excluded_visits", "ConsDbTap", "ConsDbFastAPI"]
 
 
-GAUSSIAN_FWHM_OVER_SIGMA: float = 2.0 * np.sqrt(2.0 * np.log(2.0))
-PLATESCALE = 0.2
-
-
 BAD_VISITS_LSSTCAM = (
     "https://raw.githubusercontent.com/lsst-dm/excluded_visits/" "refs/heads/main/LSSTCam/bad.ecsv"
 )

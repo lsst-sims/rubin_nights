@@ -10,9 +10,7 @@ try:
 except ModuleNotFoundError:
     HAS_RUBIN_SIM = False
 
-__all__ = [
-    "add_rubin_sim_cols",
-]
+__all__ = ["add_rubin_sim_cols", "consdb_to_opsim"]
 
 logger = logging.getLogger(__name__)
 
@@ -74,14 +72,14 @@ def add_rubin_sim_cols(
     visits = visits.merge(new_df, right_index=True, left_index=True)
 
     def calc_predicted_zeropoints(x):
-        if x.shut_time == 0 or np.isnan(x.shut_time):
+        if x.exp_time == 0 or np.isnan(x.exp_time):
             x.zero_point_1s = np.nan
             x.zero_point_1s_pred = np.nan
             x.sky_bg_median_mag = np.nan
             x.cat_m5 = np.nan
             return x
         try:
-            x.zero_point_1s = x.zero_point_median - 2.5 * np.log10(x.shut_time)
+            x.zero_point_1s = x.zero_point_median - 2.5 * np.log10(x.exp_time)
             x.zero_point_1s_pred = (
                 predicted_zeropoint(x.band, x.airmass, 1) + predicted_zeropoint_offsets[x.band]
             )
@@ -108,3 +106,27 @@ def add_rubin_sim_cols(
         pass
 
     return visits
+
+
+def consdb_to_opsim(visits: pd.DataFrame, readout=2.4) -> pd.DataFrame | None:
+    """Minimal conversion from consdb columns to opsim columns."""
+    # Assumes that visits have already been run through augment_visits,
+    # with rubin_scheduler and rubin_sim addons available.
+    if not HAS_RUBIN_SIM:
+        return None
+
+    opsim_mapping = {
+        "visit_id": "observationId",
+        "s_ra": "fieldRA",
+        "s_dec": "fieldDec",
+        "sky_rotation": "rotSkyPos",
+        "obs_start_mjd": "observationStartMJD",
+        "exp_time": "visitExposureTime",
+        "band": "filter",  # to be band
+        "cat_m5": "fiveSigmaDepth",
+        "fwhm_geom": "seeingFwhmGeom",
+        "fwhm_eff": "seeingFwhmEff",
+    }
+    opsim = visits.rename(opsim_mapping, axis=1)
+    opsim["visitTime"] = opsim.shut_time + readout
+    return opsim

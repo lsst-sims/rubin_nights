@@ -9,7 +9,7 @@ from .observatory_status import get_tma_limits
 
 try:
     from rubin_scheduler.scheduler.model_observatory import KinemModel, rotator_movement, tma_movement
-    from rubin_scheduler.site_models import Almanac
+    from rubin_scheduler.site_models import Almanac, SeeingModel
     from rubin_scheduler.utils import (
         Site,
         angular_separation,
@@ -23,6 +23,9 @@ except ModuleNotFoundError:
     HAS_RUBIN_SCHEDULER = False
 
 logger = logging.getLogger(__name__)
+
+PLATESCALE = 0.2
+GAUSSIAN_FWHM_OVER_SIGMA: float = 2.0 * np.sqrt(2.0 * np.log(2.0))
 
 __all__ = ["add_rubin_scheduler_cols", "add_model_slew_times"]
 
@@ -63,6 +66,8 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
         "moon_Dec",
         "moon_distance",
         "moon_illum",
+        "fwhm_eff",
+        "fwhm_geom",
     ]
     new_df = pd.DataFrame(np.zeros((len(visits), len(new_cols))), columns=new_cols, index=visits.index)
 
@@ -73,6 +78,9 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
         for n in new_cols:
             if n in visits.columns:
                 visits.drop(labels=n, axis=1, inplace=True)
+
+    new_df["fwhm_eff"] = visits.psf_sigma_median * GAUSSIAN_FWHM_OVER_SIGMA * PLATESCALE
+    new_df["fwhm_geom"] = SeeingModel.fwhm_eff_to_fwhm_geom(new_df.fwhm_eff)
 
     # Add in physical rotator angle, parallactic angle
     # (these will be added by ConsDB in the future
@@ -220,7 +228,7 @@ def add_model_slew_times(
     ).T
 
     # Add also the distance on the sky between the visits (degrees)
-    # This isn't always the slew distance, but it's about the best we can do here
+    # This isn't always the slew distance, but it's the best we can do here
     distances = angular_separation(
         visits.s_ra[1:].values, visits.s_dec[1:].values, visits.s_ra[0:-1].values, visits.s_dec[0:-1].values
     )
