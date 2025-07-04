@@ -5,7 +5,7 @@ from astropy.time import Time, TimeDelta
 
 from rubin_nights import connections, scriptqueue, scriptqueue_formatting
 
-logging.getLogger("night_story").setLevel(logging.INFO)
+logging.getLogger(__name__).setLevel(logging.INFO)
 
 
 def night_story(day_obs: str | None = None, tokenfile: str | None = None, site: str | None = None) -> str:
