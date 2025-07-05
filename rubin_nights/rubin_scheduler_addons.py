@@ -226,6 +226,8 @@ def add_model_slew_times(
     slewing = pd.DataFrame(
         [model_slewtimes, model_slewtimes_ideal], index=["slew_model", "slew_model_ideal"]
     ).T
+    if "visit_gap" in visits:
+        slewing["model_gap"] = visits.visit_gap - slewing.slew_model
 
     # Add also the distance on the sky between the visits (degrees)
     # This isn't always the slew distance, but it's the best we can do here

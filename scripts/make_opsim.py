@@ -1,7 +1,9 @@
 import argparse
 import logging
 import sqlite3
+
 import pandas as pd
+
 import rubin_nights.rubin_sim_addons as rsim
 from rubin_nights import connections
 
@@ -18,7 +20,7 @@ def query_consdb_to_opsim(tokenfile: str | None = None, site: str | None = None)
         f"on v.visit_id = q.visit_id "
         f"where v.img_type != 'bias' and v.img_type != 'flat' "
         f"and v.s_ra is not NULL "
-        f"and v.day_obs >= 20250420 "
+        f"and v.day_obs >= 20250415 "
     )
 
     consdb_visits = endpoints["consdb"].query(query)

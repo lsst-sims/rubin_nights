@@ -128,5 +128,4 @@ def consdb_to_opsim(visits: pd.DataFrame, readout=2.4) -> pd.DataFrame | None:
         "fwhm_eff": "seeingFwhmEff",
     }
     opsim = visits.rename(opsim_mapping, axis=1)
-    opsim["visitTime"] = opsim.shut_time + readout
     return opsim
