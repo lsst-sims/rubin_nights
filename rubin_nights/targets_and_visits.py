@@ -51,8 +51,6 @@ def targets_and_visits(
     targets = targets.query("snapshotUri != ''")
     # Make total requested exposure time for target if >1 numexp
     cols = [c for c in targets if "exposureTimes" in c]
-    target_totalexptime = targets[cols].sum(axis=1)
-    targets["target_exptime"] = target_totalexptime.values
     logger.debug(f"{len(targets)} targets events")
 
     # Fetch the observations
