@@ -75,7 +75,8 @@ def targets_and_visits(
 
     # Fetch and consolidate the nextVisits
     topic = "lsst.sal.ScriptQueue.logevent_nextVisit"
-    nextvisits = endpoints["efd"].select_time_series(topic, "*", t_start, t_end, index=queue_index)
+    fields = ["scriptSalIndex", "groupId", "position0", "position1", "cameraAngle"]
+    nextvisits = endpoints["efd"].select_time_series(topic, fields, t_start, t_end, index=queue_index)
     logger.debug(f"{len(nextvisits)} next visit events")
     # Multiple next visit events can be issued for the same target, so
     # group next visit events on script salindex if the target is the same.
@@ -183,12 +184,13 @@ def targets_and_visits(
     # (better would be to fetch times of restarts, but this is cheap)
     # (works for science visits, but other programs may not)
 
+    # Make sure column names in visits take priority
     vt = pd.merge_asof(
         to.sort_values("blockId"),
         nv.sort_values("scriptSalIndex"),
         left_on="blockId",
         right_on="scriptSalIndex",
-        suffixes=["", "_nv"],
+        suffixes=["_tob", ""],
         left_by=["skyAngle"],
         right_by=["cameraAngle"],
         allow_exact_matches=True,
@@ -204,7 +206,7 @@ def targets_and_visits(
 
     # Rename values for clarity
     vt.rename(
-        {"time": "time_target", "time_o": "time_observation", "time_nv": "time_nextvisit"},
+        {"time_tob": "time_target", "time_o": "time_observation", "time": "time_nextvisit"},
         axis=1,
         inplace=True,
     )
