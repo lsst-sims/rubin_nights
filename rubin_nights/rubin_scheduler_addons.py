@@ -12,6 +12,7 @@ try:
     from rubin_scheduler.site_models import Almanac, SeeingModel
     from rubin_scheduler.utils import (
         Site,
+        SysEngVals,
         angular_separation,
         approx_altaz2pa,
         approx_ra_dec2_alt_az,
@@ -68,6 +69,7 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
         "moon_illum",
         "fwhm_eff",
         "fwhm_geom",
+        "fwhm_500_zenith" "fwhm_500_zenith_simple",
     ]
     new_df = pd.DataFrame(np.zeros((len(visits), len(new_cols))), columns=new_cols, index=visits.index)
 
@@ -81,6 +83,20 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
 
     new_df["fwhm_eff"] = visits.psf_sigma_median * GAUSSIAN_FWHM_OVER_SIGMA * PLATESCALE
     new_df["fwhm_geom"] = SeeingModel.fwhm_eff_to_fwhm_geom(new_df.fwhm_eff)
+
+    sev = SysEngVals()
+    wavelen_corrections = np.zeros(len(visits), float)
+    for band in visits.band.unique():
+        match = np.where(visits.band.values == band)
+        if band not in "ugrizy":
+            wavelen_corrections[band] = 1
+        else:
+            wavelen_corrections[match] = np.power(500 / sev.eff_wavelengths[band], 0.3)
+    fwhm_system = 0.4
+    fwhm_atmo = np.sqrt((new_df.fwhm_eff / 1.16) ** 2 - fwhm_system**2) / 1.04
+    airmass_corrections = np.power(visits.airmass.values, 0.6)
+    new_df["fwhm_500_zenith"] = fwhm_atmo / wavelen_corrections / airmass_corrections
+    new_df["fwhm_500_zenith_simple"] = new_df.fwhm_eff / wavelen_corrections / airmass_corrections
 
     # Add in physical rotator angle, parallactic angle
     # (these will be added by ConsDB in the future
