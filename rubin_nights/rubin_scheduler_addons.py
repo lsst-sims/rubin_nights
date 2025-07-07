@@ -69,7 +69,8 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
         "moon_illum",
         "fwhm_eff",
         "fwhm_geom",
-        "fwhm_500_zenith" "fwhm_500_zenith_simple",
+        "fwhm_500_zenith",
+        "fwhm_500_zenith_simple",
     ]
     new_df = pd.DataFrame(np.zeros((len(visits), len(new_cols))), columns=new_cols, index=visits.index)
 
