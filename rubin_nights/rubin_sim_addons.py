@@ -15,6 +15,7 @@ __all__ = ["add_rubin_sim_cols", "consdb_to_opsim"]
 logger = logging.getLogger(__name__)
 
 ZEROPOINT_OFFSETS_LSSTCAM = {"u": 0.0279, "g": 0.048, "r": 0.109, "i": 0.0919, "z": 0.0959, "y": 0.0383}
+# lsstcomcam offsets based on refcats at the time of processing
 ZEROPOINT_OFFSETS_LSSTCOMCAM = {"u": 0.26, "g": -0.14, "r": -0.09, "i": -0.10, "z": -0.13, "y": -0.18}
 PLATESCALE = 0.2
 
@@ -91,7 +92,9 @@ def add_rubin_sim_cols(
             noise_instr_sq = 13
             total_noise_sq = x.psf_area_median * (x.sky_bg_median + noise_instr_sq)
             counts_5sigma = np.sqrt(total_noise_sq) * 5
-            x.cat_m5 = -2.5 * np.log10(counts_5sigma) + x.zero_point_median
+            x.cat_m5 = (
+                -2.5 * np.log10(counts_5sigma) + x.zero_point_median + predicted_zeropoint_offsets[x.band]
+            )
         except KeyError:
             # Some bands aren't in the lookup (such as pinhole)
             # And some visits
