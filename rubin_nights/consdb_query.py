@@ -67,7 +67,7 @@ class ConsDb:
         visit_constraint: str | None = None,
         augment_visits: bool = True,
     ) -> pd.DataFrame:
-        """ "Fetch visit and quicklook values from the ConsDB.
+        """Fetch visit and quicklook values from the ConsDB.
 
         Parameters
         ----------
@@ -235,6 +235,51 @@ class ConsDb:
         """
         if bad_visit_ids is not None and len(bad_visit_ids) > 0:
             return visits.query("visit_id not in @bad_visit_ids")
+
+    def query_ccdvisits(
+        self,
+        instrument: str,
+        visit_id: int,
+        detector_min: int | None = 90,
+        detector_max: int | None = 98,
+    ) -> pd.DataFrame:
+        """Fetch ccdvisit data.
+
+        Parameters
+        ----------
+        instrument
+            The instrument to search for.
+            Typical values would include lsstcomcam, latiss, and lsstcam.
+            See https://sdm-schemas.lsst.io/ for more details.
+        visit_id
+            The visit for which to fetch the detector values.
+        detector_min, detector_max
+            The minimum and maximum detector number to fetch.
+            The default values of 89/99
+
+        Returns
+        -------
+        ccdvisits : `pd.DataFrame`
+            The visit information from cdb_{instrument}.visit1 and the
+            per-detector ccdvisit information.
+            Mostly, I forget how to do this query so it's here as an example.
+        """
+        query = (
+            f"select v.*, c.detector, cq.* "
+            f"from cdb_{instrument}.visit1 as v join cdb_{instrument}.ccdvisit1 as c "
+            f"on v.visit_id = c.visit_id  "
+            f"left join cdb_{instrument}.ccdvisit1_quicklook as cq "
+            f"on c.ccdvisit_id = cq.ccdvisit_id "
+            f"where v.visit_id = {visit_id}"
+        )
+        if detector_min is not None:
+            query += f" and c.detector >= {detector_min}"
+        if detector_max is not None:
+            query += f" and c.detector <= {detector_max}"
+        print(query)
+        ccdvisits = self.query(query)
+
+        return ccdvisits
 
 
 class ConsDbTap(ConsDb):
