@@ -2,6 +2,7 @@ import logging
 
 import numpy as np
 import pandas as pd
+from astropy.time import Time
 
 try:
     from rubin_sim.phot_utils import predicted_zeropoint, predicted_zeropoint_hardware
@@ -14,7 +15,9 @@ __all__ = ["add_rubin_sim_cols", "consdb_to_opsim"]
 
 logger = logging.getLogger(__name__)
 
-ZEROPOINT_OFFSETS_LSSTCAM = {"u": 0.0279, "g": 0.048, "r": 0.109, "i": 0.0919, "z": 0.0959, "y": 0.0383}
+EFFTIME_REF_MAGS = {"u": 23.70, "g": 24.97, "r": 24.52, "i": 24.13, "z": 23.56, "y": 22.55}
+EFFTIME_TIME = 30
+ZEROPOINT_OFFSETS_LSSTCAM = {"u": 0.04, "g": 0.06, "r": 0.11, "i": 0.09, "z": 0.11, "y": 0.08}
 # lsstcomcam offsets based on refcats at the time of processing
 ZEROPOINT_OFFSETS_LSSTCOMCAM = {"u": 0.26, "g": -0.14, "r": -0.09, "i": -0.10, "z": -0.13, "y": -0.18}
 PLATESCALE = 0.2
@@ -51,6 +54,13 @@ def add_rubin_sim_cols(
         logger.info("No rubin_sim available, simply returning visits.")
         return visits
 
+    necessary_cols = ["zero_point_median", "psf_sigma_median", "sky_bg_median"]
+    for c in necessary_cols:
+        if c not in visits.columns:
+            logger.info("Missing columns for psf_sigma_median, zero_point_median or sky_bg_median.")
+            return visits
+
+    # Calculate additional zeropoints and sky columns
     if predicted_zeropoint_offsets is None:
         if instrument.lower() == "lsstcam":
             predicted_zeropoint_offsets = ZEROPOINT_OFFSETS_LSSTCAM
@@ -60,7 +70,13 @@ def add_rubin_sim_cols(
             predicted_zeropoint_offsets = {"u": 0, "g": 0, "r": 0, "i": 0, "z": 0, "y": 0}
 
     # Add new columns
-    new_cols = ["zero_point_1s", "zero_point_1s_pred", "clouds", "sky_bg_median_mag", "cat_m5"]
+    new_cols = [
+        "zero_point_1s",
+        "zero_point_1s_pred",
+        "clouds",
+        "sky_bg_median_mag",
+        "cat_m5",
+    ]
     new_df = pd.DataFrame(np.zeros((len(visits), len(new_cols))), columns=new_cols, index=visits.index)
     if all(new_cols) in visits.columns:
         logger.debug("All columns already present in visits.")
@@ -73,49 +89,42 @@ def add_rubin_sim_cols(
     visits = visits.merge(new_df, right_index=True, left_index=True)
 
     def calc_predicted_zeropoints(x):
-        if x.exp_time == 0 or np.isnan(x.exp_time):
+        if x.exp_time == 0 or np.isnan(x.exp_time) or x.band not in ["u", "g", "r", "i", "z", "y"]:
+            # Bail if zero or nan exposure time or not in bandpass dictionary.
             x.zero_point_1s = np.nan
             x.zero_point_1s_pred = np.nan
             x.sky_bg_median_mag = np.nan
             x.cat_m5 = np.nan
             return x
-        try:
-            x.zero_point_1s = x.zero_point_median - 2.5 * np.log10(x.exp_time)
-            x.zero_point_1s_pred = (
-                predicted_zeropoint(x.band, x.airmass, 1) + predicted_zeropoint_offsets[x.band]
-            )
-            x.clouds = x.zero_point_1s - x.zero_point_1s_pred
-            # Convert sky counts/pixel to magnitude/arcsecond^2
-            zp_sky = predicted_zeropoint_hardware(x.band, x.shut_time) + predicted_zeropoint_offsets[x.band]
-            x.sky_bg_median_mag = -2.5 * np.log10(x.sky_bg_median / PLATESCALE**2) + zp_sky
-            # Do an approximation for the instrumental noise (in e-)
-            noise_instr_sq = 13
-            total_noise_sq = x.psf_area_median * (x.sky_bg_median + noise_instr_sq)
-            counts_5sigma = np.sqrt(total_noise_sq) * 5
-            x.cat_m5 = (
-                -2.5 * np.log10(counts_5sigma) + x.zero_point_median + predicted_zeropoint_offsets[x.band]
-            )
-        except KeyError:
-            # Some bands aren't in the lookup (such as pinhole)
-            # And some visits
-            pass
+        # Calculate 1-s 1-e- zeropoints (measured and predicted)
+        x.zero_point_1s = x.zero_point_median - 2.5 * np.log10(x.exp_time)
+        x.zero_point_1s_pred = predicted_zeropoint(x.band, x.airmass, 1) + predicted_zeropoint_offsets[x.band]
+        # Convert sky counts/pixel to magnitude/arcsecond^2
+        zp_sky = predicted_zeropoint_hardware(x.band, x.shut_time) + predicted_zeropoint_offsets[x.band]
+        x.sky_bg_median_mag = -2.5 * np.log10(x.sky_bg_median / PLATESCALE**2) + zp_sky
         return x
 
-    try:
-        visits = visits.apply(calc_predicted_zeropoints, axis=1)
-    except AttributeError:
-        # Missing quicklook columns for psf or zeropoint or sky
-        logger.debug("Missing columns for psf_sigma_median, zero_point_median or sky_bg_median.")
-        pass
+    visits = visits.apply(calc_predicted_zeropoints, axis=1)
+    visits.clouds = visits.zero_point_1s_pred - visits.zero_point_1s
+    # Calculate predicted m5 with an estimate of readnoise
+    noise_instr_sq = 13
+    total_noise_sq = visits.psf_area_median * (visits.sky_bg_median + noise_instr_sq)
+    snr = 5
+    counts_5sigma = (snr**2) / (2) + np.sqrt((snr**4) / (4) + snr**2 * total_noise_sq)
+    visits.cat_m5 = -2.5 * np.log10(counts_5sigma) + visits.zero_point_median
 
     return visits
 
 
-def consdb_to_opsim(visits: pd.DataFrame, readout=2.4) -> pd.DataFrame | None:
+def consdb_to_opsim(visits: pd.DataFrame) -> pd.DataFrame | None:
     """Minimal conversion from consdb columns to opsim columns."""
     # Assumes that visits have already been run through augment_visits,
     # with rubin_scheduler and rubin_sim addons available.
     if not HAS_RUBIN_SIM:
+        return None
+
+    if "visit_gap" not in visits:
+        logging.warning("Run consdb.augment_visits first")
         return None
 
     opsim_mapping = {
@@ -125,10 +134,22 @@ def consdb_to_opsim(visits: pd.DataFrame, readout=2.4) -> pd.DataFrame | None:
         "sky_rotation": "rotSkyPos",
         "obs_start_mjd": "observationStartMJD",
         "exp_time": "visitExposureTime",
-        "band": "filter",  # to be band
+        "dark_time": "visitTime",
+        "sky_bg_mag": "skybrightness",
         "cat_m5": "fiveSigmaDepth",
+        "visit_gap": "slewtime",
         "fwhm_geom": "seeingFwhmGeom",
         "fwhm_eff": "seeingFwhmEff",
+        "moon_illum": "moonPhase",
+        "fwhm_500_zenith": "FWHM_500",
     }
     opsim = visits.rename(opsim_mapping, axis=1)
+    # Appropriate for SV survey
+    opsim["nexp"] = 1
+    opsim["night"] = np.floor(
+        (
+            Time(opsim["observationStartMJD"], format="mjd", scale="tai")
+            - Time("2025-06-20T12:00:00", scale="tai")
+        ).jd
+    )
     return opsim
