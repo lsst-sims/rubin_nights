@@ -70,7 +70,6 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
         "fwhm_eff",
         "fwhm_geom",
         "fwhm_500_zenith",
-        "fwhm_500_zenith_simple",
     ]
     new_df = pd.DataFrame(np.zeros((len(visits), len(new_cols))), columns=new_cols, index=visits.index)
 
@@ -90,14 +89,16 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
     for band in visits.band.unique():
         match = np.where(visits.band.values == band)
         if band not in "ugrizy":
-            wavelen_corrections[band] = 1
+            wavelen_corrections[match] = 1
         else:
-            wavelen_corrections[match] = np.power(500 / sev.eff_wavelengths[band], 0.3)
-    fwhm_system = 0.4
-    fwhm_atmo = np.sqrt((new_df.fwhm_eff / 1.16) ** 2 - fwhm_system**2) / 1.04
+            # SeeingModel uses 0.3, but RHL says 0.2
+            wavelen_corrections[match] = np.power(500 / sev.eff_wavelengths[band], 0.2)
+    # SeeingModel uses 0.6 and RHL agrees
     airmass_corrections = np.power(visits.airmass.values, 0.6)
+    fwhm_system = 0.4
+    # leave this? Bob says fwhm_system does not need X dependency
+    fwhm_atmo = np.sqrt((new_df.fwhm_eff / 1.16) ** 2 - fwhm_system**2) / 1.04
     new_df["fwhm_500_zenith"] = fwhm_atmo / wavelen_corrections / airmass_corrections
-    new_df["fwhm_500_zenith_simple"] = new_df.fwhm_eff / wavelen_corrections / airmass_corrections
 
     # Add in physical rotator angle, parallactic angle
     # (these will be added by ConsDB in the future
