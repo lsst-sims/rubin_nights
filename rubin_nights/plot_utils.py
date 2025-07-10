@@ -76,7 +76,7 @@ def detector_plot(
         vmax = np.nanmax(detector_values[key].values)
     norm = Normalize(vmin=vmin, vmax=vmax)
 
-    tmp = pd.merge(camera_df, detector_values, how="right", left_index=True, right_index=True)
+    tmp = pd.merge(camera_df, detector_values, how="right", left_on="detId", right_on="detector")
 
     patches = []
     for det, row in tmp.iterrows():
@@ -88,6 +88,7 @@ def detector_plot(
             ha="center",
             va="center",
             size="large",
+            color="black",
             rotation=row.textRot,
         )
 

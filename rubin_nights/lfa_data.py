@@ -23,6 +23,20 @@ except ModuleNotFoundError:
 logger = logging.getLogger(__name__)
 
 
+def hp_laea(
+    hp_array: np.ndarray, label: str | None = None, vmin: float | None = None, vmax: float | None = None
+) -> None:
+    hp.azeqview(hp_array, rot=(0, -90, 0), lamb=True, reso=17.5, min=vmin, max=vmax, title=label)
+    hp.graticule()
+
+
+def hp_moll(
+    hp_array: np.ndarray, label: str | None = None, vmin: float | None = None, vmax: float | None = None
+) -> None:
+    hp.mollview(hp_array, min=vmin, max=vmax, title=label)
+    hp.graticule()
+
+
 def get_scheduler_snapshot(uri: str, at_usdf: bool = True):
     if at_usdf:
         uri = usdf_lfa(uri, bucket="s3://lfa@")
