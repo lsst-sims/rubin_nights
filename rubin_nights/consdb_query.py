@@ -276,7 +276,6 @@ class ConsDb:
             query += f" and c.detector >= {detector_min}"
         if detector_max is not None:
             query += f" and c.detector <= {detector_max}"
-        print(query)
         ccdvisits = self.query(query)
 
         return ccdvisits
