@@ -187,16 +187,22 @@ def add_model_slew_times(
     tma_speeds = get_tma_limits(t_start, t_end, efd_client)
 
     kinematic_model_ideal = KinemModel(mjd0=t_start.mjd - 0.1)
+    # When evaluating slew times between actual images, need to
+    # remove delay for closed-loop (the image itself represents the delay)
+    kinematic_model_ideal.setup_optics(cl_delay=[0, 0])
     kinematic_model_ideal.setup_telescope(
-        **tma_movement(70), altitude_minpos=15, altitude_maxpos=86.5, azimuth_minpos=-260, azimuth_maxpos=260
+        **tma_movement(70), altitude_minpos=15, altitude_maxpos=86.5, azimuth_minpos=-262, azimuth_maxpos=262
     )
-    kinematic_model_ideal.setup_camera(**rotator_movement(100))
+    kinematic_model_ideal.setup_camera(**rotator_movement(100), readtime=3.07)
     kinematic_model_ideal.mount_bands(["u", "g", "r", "i", "z", "y"])
+
     # Slower kinematic model to modify with actual telescope parameters
     # Set up current kinematic model.
     kinematic_model = KinemModel(mjd0=t_start.mjd - 0.1)
-    kinematic_model.setup_camera(band_changetime=140, **rotator_movement(100))
-    kinematic_model.setup_telescope(settle_time=model_settle)
+    # When evaluating slew times between actual images, need to
+    # remove delay for closed-loop (the image itself represents the delay)
+    kinematic_model.setup_optics(cl_delay=[0, 0])
+    kinematic_model.setup_camera(band_changetime=140, **rotator_movement(100), readtime=3.07)
     kinematic_model.mount_bands(["u", "g", "r", "i", "z", "y"])
 
     model_slewtimes = {}  # current performance model
