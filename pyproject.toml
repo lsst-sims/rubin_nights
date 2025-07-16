@@ -21,6 +21,7 @@ dynamic = [ "version" ]
 dependencies = [
     "astropy",
     "httpx",
+    "matplotlib",
     "numpy",
     "pandas",
     "pyvo",
@@ -29,6 +30,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+rubin = [
+    "lsst-resources",
+    "rubin-scheduler",
+    "rubin-sim",
+]
 test = [
      "pytest",
      "black>=25",
