@@ -1,5 +1,6 @@
 astropy-base
 httpx
+matplotlib-base
 numpy
 pandas
 pyvo
