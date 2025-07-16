@@ -123,10 +123,6 @@ def consdb_to_opsim(visits: pd.DataFrame) -> pd.DataFrame | None:
     if not HAS_RUBIN_SIM:
         return None
 
-    if "visit_gap" not in visits:
-        logging.warning("Run consdb.augment_visits first")
-        return None
-
     opsim_mapping = {
         "visit_id": "observationId",
         "s_ra": "fieldRA",
@@ -135,14 +131,22 @@ def consdb_to_opsim(visits: pd.DataFrame) -> pd.DataFrame | None:
         "obs_start_mjd": "observationStartMJD",
         "exp_time": "visitExposureTime",
         "dark_time": "visitTime",
-        "sky_bg_mag": "skybrightness",
+        "sky_bg_median_mag": "skyBrightness",
         "cat_m5": "fiveSigmaDepth",
-        "visit_gap": "slewtime",
+        "visit_gap": "slewTime",
+        "slew_distance": "slewDistance",
         "fwhm_geom": "seeingFwhmGeom",
         "fwhm_eff": "seeingFwhmEff",
         "moon_illum": "moonPhase",
         "fwhm_500_zenith": "FWHM_500",
+        "clouds": "cloud_extinction",
     }
+
+    for key in opsim_mapping.keys():
+        if key not in visits:
+            logging.warning("Run consdb.augment_visits first")
+            return None
+
     opsim = visits.rename(opsim_mapping, axis=1)
     # Appropriate for SV survey
     opsim["nexp"] = 1
@@ -152,4 +156,6 @@ def consdb_to_opsim(visits: pd.DataFrame) -> pd.DataFrame | None:
             - Time("2025-06-20T12:00:00", scale="tai")
         ).jd
     )
+
+
     return opsim
