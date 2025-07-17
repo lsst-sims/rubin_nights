@@ -15,8 +15,6 @@ __all__ = ["add_rubin_sim_cols", "consdb_to_opsim"]
 
 logger = logging.getLogger(__name__)
 
-EFFTIME_REF_MAGS = {"u": 23.70, "g": 24.97, "r": 24.52, "i": 24.13, "z": 23.56, "y": 22.55}
-EFFTIME_TIME = 30
 ZEROPOINT_OFFSETS_LSSTCAM = {"u": 0.04, "g": 0.06, "r": 0.11, "i": 0.09, "z": 0.11, "y": 0.08}
 # lsstcomcam offsets based on refcats at the time of processing
 ZEROPOINT_OFFSETS_LSSTCOMCAM = {"u": 0.26, "g": -0.14, "r": -0.09, "i": -0.10, "z": -0.13, "y": -0.18}
@@ -49,6 +47,15 @@ def add_rubin_sim_cols(
         The visit information, with additional columns added for
         predicted zeropoint values, sky background in magnitudes,
         an estimated m5 depth (from zeropoint + sky).
+
+    Notes
+    -----
+    Columns added are:
+    zero_point_1s (zero_point_median scaled to 1s)
+    zero_point_1s_pred (predicted from rubin_sim.predicted_zeropoint)
+    clouds (the difference of the above values)
+    sky_bg_median_mag (sky_bg_median scaled to mag/arcsecond^2)
+    cat_m5 (calculated m5 from median values)
     """
     if not HAS_RUBIN_SIM:
         logger.info("No rubin_sim available, simply returning visits.")
@@ -101,7 +108,12 @@ def add_rubin_sim_cols(
         x.zero_point_1s_pred = predicted_zeropoint(x.band, x.airmass, 1) + predicted_zeropoint_offsets[x.band]
         # Convert sky counts/pixel to magnitude/arcsecond^2
         zp_sky = predicted_zeropoint_hardware(x.band, x.shut_time) + predicted_zeropoint_offsets[x.band]
-        x.sky_bg_median_mag = -2.5 * np.log10(x.sky_bg_median / PLATESCALE**2) + zp_sky
+        # replace PLATESCALE with x.pixel_scale_median when available
+        if np.isnan(x.pixel_scale_median):
+            pixel_scale = PLATESCALE
+        else:
+            pixel_scale = x.pixel_scale_median
+        x.sky_bg_median_mag = -2.5 * np.log10(x.sky_bg_median / pixel_scale**2) + zp_sky
         return x
 
     visits = visits.apply(calc_predicted_zeropoints, axis=1)
@@ -116,8 +128,22 @@ def add_rubin_sim_cols(
     return visits
 
 
-def consdb_to_opsim(visits: pd.DataFrame) -> pd.DataFrame | None:
-    """Minimal conversion from consdb columns to opsim columns."""
+def consdb_to_opsim(consdb_visits: pd.DataFrame) -> pd.DataFrame | None:
+    """Minimal conversion from consdb columns to opsim columns.
+
+    Parameters
+    ----------
+    consdb_visits
+        Dataframe of visit + quicklook information from the ConsDB.
+
+    Returns
+    -------
+    opsim_visits
+        Dataframe of visit information reformatted for opsim.
+        This is primarily renaming columns.
+        The `night` is also added using the first night of the SV
+        survey as night=0.
+    """
     # Assumes that visits have already been run through augment_visits,
     # with rubin_scheduler and rubin_sim addons available.
     if not HAS_RUBIN_SIM:
@@ -143,19 +169,18 @@ def consdb_to_opsim(visits: pd.DataFrame) -> pd.DataFrame | None:
     }
 
     for key in opsim_mapping.keys():
-        if key not in visits:
+        if key not in consdb_visits:
             logging.warning("Run consdb.augment_visits first")
             return None
 
-    opsim = visits.rename(opsim_mapping, axis=1)
+    opsim_visits = consdb_visits.rename(opsim_mapping, axis=1)
     # Appropriate for SV survey
-    opsim["nexp"] = 1
-    opsim["night"] = np.floor(
+    opsim_visits["nexp"] = 1
+    opsim_visits["night"] = np.floor(
         (
-            Time(opsim["observationStartMJD"], format="mjd", scale="tai")
+            Time(opsim_visits["observationStartMJD"], format="mjd", scale="tai")
             - Time("2025-06-20T12:00:00", scale="tai")
         ).jd
     )
 
-
-    return opsim
+    return opsim_visits
