@@ -50,6 +50,15 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
         The visit information, with additional columns added for
         predicted zeropoint values, sky background in magnitudes,
         an estimated m5 depth (from zeropoint + sky).
+
+    Notes
+    -----
+    Columns calculated and added:
+    lst, HA (via astropy)
+    moon_alt, moon_az, moon_RA, moon_dec, moon_distance, moon_illum
+    (via the rubin_scheduler almanac)
+    fwhm_eff, fwhm_geom, fwhm_500_zenith (via the rubin_scheduler SeeingModel)
+    approx_pa, approx_rotTelPos (via rubin_scheduler approx values)
     """
     if not HAS_RUBIN_SCHEDULER:
         logger.info("No rubin_scheduler available, simply returning visits.")
@@ -81,7 +90,11 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
             if n in visits.columns:
                 visits.drop(labels=n, axis=1, inplace=True)
 
-    new_df["fwhm_eff"] = visits.psf_sigma_median * GAUSSIAN_FWHM_OVER_SIGMA * PLATESCALE
+    # replace PLATESCALE with x.pixel_scale_median when available
+    pixel_scale = np.where(
+        np.isnan(visits.pixel_scale_median.values), PLATESCALE, visits.pixel_scale_median.values
+    )
+    new_df["fwhm_eff"] = visits.psf_sigma_median * GAUSSIAN_FWHM_OVER_SIGMA * pixel_scale
     new_df["fwhm_geom"] = SeeingModel.fwhm_eff_to_fwhm_geom(new_df.fwhm_eff)
 
     sev = SysEngVals()
@@ -146,9 +159,10 @@ def add_model_slew_times(
     visits: pd.DataFrame,
     efd_client: InfluxQueryClient,
     model_settle: float = 1,
+    ideal_tma: float = 40,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """ "Add model (applied tma limits plus FBS-default tma limits) calculated
-    slewtimes to visits dataframe.
+    slewtimes to visits dataframe, in `slew_model` and `slew_model_ideal`.
 
     This is only applicable to SimonyiTel at present!
 
@@ -165,6 +179,8 @@ def add_model_slew_times(
         The amount of settle time to add to the model_slew.
         This should make the model_slew time match the TMAevent time.
         Might vary over time.
+    ideal_tma
+        Model TMA movement value to use for the ideal model, in percent.
 
     Returns
     -------
@@ -178,10 +194,12 @@ def add_model_slew_times(
     sky, subsets of visits that do not include the starting position may
     have inaccurate first slew estimates. Slews are the model slewtime
     *to* the visit (and compare against `visit_gap` for the same visit).
+
     """
     if not HAS_RUBIN_SCHEDULER:
         logger.info("No rubin_scheduler available, cannot calculate model slew times.")
-        return visits
+        return visits, None
+
     t_start = Time(visits.obs_start_mjd.min(), format="mjd", scale="tai")
     t_end = Time(visits.obs_start_mjd.max(), format="mjd", scale="tai")
     tma_speeds = get_tma_limits(t_start, t_end, efd_client)
@@ -191,7 +209,11 @@ def add_model_slew_times(
     # remove delay for closed-loop (the image itself represents the delay)
     kinematic_model_ideal.setup_optics(cl_delay=[0, 0])
     kinematic_model_ideal.setup_telescope(
-        **tma_movement(70), altitude_minpos=15, altitude_maxpos=86.5, azimuth_minpos=-262, azimuth_maxpos=262
+        **tma_movement(ideal_tma),
+        altitude_minpos=15,
+        altitude_maxpos=86.5,
+        azimuth_minpos=-262,
+        azimuth_maxpos=262,
     )
     kinematic_model_ideal.setup_camera(**rotator_movement(100), readtime=3.07)
     kinematic_model_ideal.mount_bands(["u", "g", "r", "i", "z", "y"])
