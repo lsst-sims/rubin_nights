@@ -19,14 +19,25 @@ def get_access_token(tokenfile: str | None = None) -> str:
     Parameters
     ----------
     tokenfile
-        Path to token file.
-        Default None will try lsst.rsp.get_access_token or then
-        search for ACCESS_TOKEN environment variable.
+        Path to the RSP token file. See documentation on RSP tokens at
+        https://rsp.lsst.io/v/usdfprod/guides/auth/creating-user-tokens.html
+        The token will be read from the tokenfile if available.
+        The default value of `None` will attempt to use the
+        `lsst.rsp.get_access_token` method if accessible, or then
+        look for ACCESS_TOKEN in environment variables.
+        If no RSP token is available, access to most services will not
+        be available.
 
     Returns
     -------
     token : `str`
         Token value.
+
+    Notes
+    -----
+    RSP access tokens are unique to the different RSP sites, and the
+    services which run on a particular site must receive tokens from the
+    same site.
     """
     token = None
     # First - tokenfile provided
@@ -57,7 +68,7 @@ def get_clients(tokenfile: str | None = None, site: str | None = None) -> dict:
     Parameters
     ----------
     tokenfile
-        Passed to `get_access_token`.
+        Path to the RSP tokenfile. See also `get_access_token`.
     site
         Override site location to a preferred site.
         Most likely to be used to specify `usdf-dev` vs `usdf`.
@@ -74,7 +85,7 @@ def get_clients(tokenfile: str | None = None, site: str | None = None) -> dict:
     The authentication token required to access the log services
     is an RSP token, and is RSP site-specific (including usdf vs usdf-dev).
     For users outside the RSP, a token can be created as described in
-    https://nb.lsst.io/environment/tokens.html
+    https://rsp.lsst.io/v/usdfprod/guides/auth/creating-user-tokens.html
     """
     # Set up authentication
     token = get_access_token(tokenfile)
