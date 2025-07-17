@@ -70,7 +70,7 @@ def day_obs_sunset_sunrise(day_obs: str | int, sun_alt: float = -12) -> tuple[Ti
     if "-" not in day_obs:
         day_obs = day_obs_int_to_str(day_obs)
     day_obs_time = Time(f"{day_obs}T12:00:00", format="isot", scale="tai")
-    observer = Observer.at_site("lsst")
+    observer = Observer.at_site("Rubin")
     sunset = Time(observer.sun_set_time(day_obs_time, which="next", horizon=sun_alt * u.deg), format="jd")
     sunrise = Time(observer.sun_rise_time(day_obs_time, which="next", horizon=sun_alt * u.deg), format="jd")
     return (sunset, sunrise)
