@@ -57,12 +57,57 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
     lst, HA (via astropy)
     moon_alt, moon_az, moon_RA, moon_dec, moon_distance, moon_illum
     (via the rubin_scheduler almanac)
-    fwhm_eff, fwhm_geom, fwhm_500_zenith (via the rubin_scheduler SeeingModel)
+    fwhm_eff, fwhm_geom, fwhm_500_zenith
+    (via something close to the rubin_scheduler SeeingModel (but lambda^-0.2)
     approx_pa, approx_rotTelPos (via rubin_scheduler approx values)
     """
     if not HAS_RUBIN_SCHEDULER:
         logger.info("No rubin_scheduler available, simply returning visits.")
         return visits
+
+    # Try to add seeing columns, if "psf_sigma_median" in visits.
+    if "psf_sigma_median" in visits.columns:
+        seeing_cols = [
+            "fwhm_eff",
+            "fwhm_geom",
+            "fwhm_500_zenith",
+        ]
+        seeing_df = pd.DataFrame(
+            np.zeros((len(visits), len(seeing_cols))), columns=seeing_cols, index=visits.index
+        )
+
+        for n in seeing_cols:
+            if n in visits.columns:
+                visits.drop(labels=n, axis=1, inplace=True)
+
+        # replace PLATESCALE with x.pixel_scale_median when available
+        if "pixel_scale_median" in visits.columns:
+            pixel_scale = np.where(
+                np.isnan(visits.pixel_scale_median.values), PLATESCALE, visits.pixel_scale_median.values
+            )
+        else:
+            pixel_scale = PLATESCALE
+        if "psf_sigma_median" in visits.columns:
+            seeing_df["fwhm_eff"] = visits.psf_sigma_median * GAUSSIAN_FWHM_OVER_SIGMA * pixel_scale
+            seeing_df["fwhm_geom"] = SeeingModel.fwhm_eff_to_fwhm_geom(seeing_df.fwhm_eff)
+
+        sev = SysEngVals()
+        wavelen_corrections = np.zeros(len(visits), float)
+        for band in visits.band.unique():
+            match = np.where(visits.band.values == band)
+            if band not in "ugrizy":
+                wavelen_corrections[match] = 1
+            else:
+                # SeeingModel uses 0.3, but RHL says 0.2
+                wavelen_corrections[match] = np.power(500 / sev.eff_wavelengths[band], 0.2)
+        # SeeingModel uses 0.6 and RHL agrees
+        airmass_corrections = np.power(visits.airmass.values, 0.6)
+        fwhm_system = 0.4
+        # leave this? Bob says fwhm_system does not need X dependency
+        fwhm_atmo = np.sqrt((seeing_df.fwhm_eff / 1.16) ** 2 - fwhm_system**2) / 1.04
+        seeing_df["fwhm_500_zenith"] = fwhm_atmo / wavelen_corrections / airmass_corrections
+
+        visits = visits.merge(seeing_df, right_index=True, left_index=True)
 
     # Add new columns
     new_cols = [
@@ -76,42 +121,12 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
         "moon_Dec",
         "moon_distance",
         "moon_illum",
-        "fwhm_eff",
-        "fwhm_geom",
-        "fwhm_500_zenith",
     ]
     new_df = pd.DataFrame(np.zeros((len(visits), len(new_cols))), columns=new_cols, index=visits.index)
 
-    if all(new_cols) in visits.columns:
-        logger.debug("All columns already present in visits.")
-        return visits
-    else:
-        for n in new_cols:
-            if n in visits.columns:
-                visits.drop(labels=n, axis=1, inplace=True)
-
-    # replace PLATESCALE with x.pixel_scale_median when available
-    pixel_scale = np.where(
-        np.isnan(visits.pixel_scale_median.values), PLATESCALE, visits.pixel_scale_median.values
-    )
-    new_df["fwhm_eff"] = visits.psf_sigma_median * GAUSSIAN_FWHM_OVER_SIGMA * pixel_scale
-    new_df["fwhm_geom"] = SeeingModel.fwhm_eff_to_fwhm_geom(new_df.fwhm_eff)
-
-    sev = SysEngVals()
-    wavelen_corrections = np.zeros(len(visits), float)
-    for band in visits.band.unique():
-        match = np.where(visits.band.values == band)
-        if band not in "ugrizy":
-            wavelen_corrections[match] = 1
-        else:
-            # SeeingModel uses 0.3, but RHL says 0.2
-            wavelen_corrections[match] = np.power(500 / sev.eff_wavelengths[band], 0.2)
-    # SeeingModel uses 0.6 and RHL agrees
-    airmass_corrections = np.power(visits.airmass.values, 0.6)
-    fwhm_system = 0.4
-    # leave this? Bob says fwhm_system does not need X dependency
-    fwhm_atmo = np.sqrt((new_df.fwhm_eff / 1.16) ** 2 - fwhm_system**2) / 1.04
-    new_df["fwhm_500_zenith"] = fwhm_atmo / wavelen_corrections / airmass_corrections
+    for n in new_cols:
+        if n in visits.columns:
+            visits.drop(labels=n, axis=1, inplace=True)
 
     # Add in physical rotator angle, parallactic angle
     # (these will be added by ConsDB in the future

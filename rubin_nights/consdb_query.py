@@ -1,63 +1,47 @@
 """Execute queries for the ConsDB."""
 
 import logging
-import warnings
 
-import astropy.units as u
 import httpx
 import numpy as np
 import pandas as pd
 import pyvo
-from astropy.coordinates import SkyCoord
 from astropy.time import Time
 
-from .rubin_scheduler_addons import add_rubin_scheduler_cols
-from .rubin_sim_addons import add_rubin_sim_cols
+try:
+    import sqlalchemy
+
+    HAS_SQLALCHEMY = True
+except ModuleNotFoundError:
+    HAS_SQLALCHEMY = False
+
+from .augment_visits import augment_visits
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["fetch_excluded_visits", "ConsDbTap", "ConsDbFastAPI"]
-
-
-BAD_VISITS_LSSTCAM = (
-    "https://raw.githubusercontent.com/lsst-dm/excluded_visits/" "refs/heads/main/LSSTCam/bad.ecsv"
-)
-BAD_VISITS_LSSTCOMCAM = (
-    "https://raw.githubusercontent.com/lsst-dm/excluded_visits/" "refs/heads/main/LSSTComCam/bad.ecsv"
-)
-
-
-def fetch_excluded_visits(instrument: str = "lsstcam") -> list[str]:
-    """Retrieve excluded visit list from the instrument-appropriate
-    BAD_VISITS URI at github @ lsst-dm/excluded_visits.
-
-    Parameters
-    ----------
-    instrument
-        Which bad.ecsv file to retrieve.
-        The options are lsstcam or lsstcomcam.
-
-    Returns
-    -------
-    bad_visit_ids : `list` [ `str` ]
-        The bad visit_ids from the github repo bad.ecsv file.
-    """
-    if instrument.lower() == "lsstcam":
-        uri = BAD_VISITS_LSSTCAM
-    elif instrument.lower() == "lsstcomcam":
-        uri = BAD_VISITS_LSSTCOMCAM
-    bad_visits = pd.read_csv(uri, comment="#")
-    bad_visit_ids = bad_visits.exposure.to_list()
-    return bad_visit_ids
+__all__ = ["ConsDbTap", "ConsDbFastAPI", "ConsDbSql"]
 
 
 class ConsDb:
 
     def query(self, query) -> pd.DataFrame:
-        """This is implemented in the child classes,
-        according to the interface used to access the ConsDB.
+        """The simple query method is implemented in the child classes,
+        according to the specific service/interface used to access the ConsDB.
         """
         raise NotImplementedError
+
+    def augment_visits(
+        self,
+        visits: pd.DataFrame,
+        instrument: str = "lsstcam",
+        predicted_zeropoint_offsets: dict | None = None,
+    ) -> pd.DataFrame:
+        """Shim for backwards compatibility."""
+        logger.warning(
+            "ConsDb.augment_visits is deprecated; please use "
+            "rubin_nights.augment_visits.augment_visits instead"
+        )
+        return augment_visits(visits, instrument, predicted_zeropoint_offsets)
 
     def get_visits(
         self,
@@ -65,7 +49,7 @@ class ConsDb:
         t_start: Time | None = None,
         t_end: Time | None = None,
         visit_constraint: str | None = None,
-        augment_visits: bool = True,
+        augment: bool = True,
     ) -> pd.DataFrame:
         """Fetch visit and quicklook values from the ConsDB.
 
@@ -81,17 +65,18 @@ class ConsDb:
             The latest time to match obs_start.
         visit_constraint
             A constraint to apply to the cdb_{instrument}.visit1 table.
-            Example: `"science_program = 'BLOCK-365'"`
-        augment_visits
-            If True, immediately call consdb.augment_visits after fetching
-            visit1 and visit1_quicklook values from the ConsDB.
+            Example: `"visit1.science_program = 'BLOCK-365'"`
+        augment
+            If True, immediately call `augment_visits.augment_visits`
+            after fetching visit1 and visit1_quicklook values from the ConsDB.
 
         Returns
         -------
         visits : `pd.DataFrame`
             The visit information from cdb_{instrument}.visit1 and
             cdb_{instrument}.visit1_quicklook (if available).
-            Additional information may be added, such as `visit_gap`.
+            Additional information may be added, such as `visit_gap`
+            if `augment_visits` is True.
         """
 
         query = (
@@ -116,132 +101,16 @@ class ConsDb:
             logger.info(f"No visits for {instrument} retrieved from consdb")
             return pd.DataFrame([])
 
-        if augment_visits:
-            visits = self.augment_visits(visits, instrument)
+        if augment:
+            visits = augment_visits(visits, instrument)
         return visits
-
-    def augment_visits(
-        self,
-        visits: pd.DataFrame,
-        instrument: str = "lsstcam",
-        predicted_zeropoint_offsets: dict | None = None,
-    ) -> pd.DataFrame:
-        """Add additional columns to the visits dataframe.
-
-        Parameters
-        ----------
-        visits
-            The visit information from cdb_{instrument}.visit1 and
-            cdb_{instrument}.visit1_quicklook (if available).
-        instrument
-            The instrument for the visits.
-            Used to calculate the approproximate rotTelPos value.
-        predicted_zeropoint_offsets
-            Offsets to add to the predicted zeropoint values.
-            If None, will pick appropriate defaults based on instrument.
-
-        Returns
-        -------
-        visits : `pd.DataFrame`
-            The visit information, with additional columns added for
-            predicted zeropoint values, sky background in magnitudes,
-            an estimated m5 depth (from zeropoint + sky), as well
-            as an approximate rotTelPos (likely off by ~1 deg).
-            Some columns may be reformatted for dtypes.
-        """
-        if len(visits) == 0:
-            return visits
-
-        # Replace Nones or Nans in important string fields
-        values = dict([[e, ""] for e in ["science_program", "target_name", "observation_reason"]])
-        visits.fillna(value=values, inplace=True)
-
-        # If no quicklook processing was run, these columns may be object:
-        columns_to_floats = [
-            "s_ra",
-            "s_dec",
-            "exp_midpt_mjd",
-            "airmass",
-            "zero_point_median",
-            "psf_sigma_median",
-            "psf_area_median",
-            "sky_bg_median",
-        ]
-        for col in columns_to_floats:
-            if col in visits:
-                visits[col] = visits[col].astype("float")
-
-        visits.sort_values(by="exp_midpt_mjd", inplace=True)
-
-        # Add time between visits
-        prev_visit_start = np.concatenate([np.array([0]), visits.obs_start_mjd[0:-1]])
-        prev_visit_end = np.concatenate([np.array([0]), visits.obs_end_mjd[0:-1]])
-        visit_gap = np.concatenate(
-            [np.array([0]), (visits.obs_start_mjd[1:].values - visits.obs_end_mjd[:-1].values) * 24 * 60 * 60]
-        )  # seconds
-
-        coordinates = SkyCoord(visits.s_ra, visits.s_dec, unit=u.degree, frame="icrs")
-        # We get runtime warnings here where nans are present
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            ecliptic = coordinates.transform_to("geocentricmeanecliptic")
-
-        new_df = pd.DataFrame(
-            [
-                prev_visit_start,
-                prev_visit_end,
-                visit_gap,
-                ecliptic.lat.deg,
-                ecliptic.lon.deg,
-                coordinates.galactic.b.deg,
-                coordinates.galactic.l.deg,
-            ],
-            index=[
-                "prev_obs_start_mjd",
-                "prev_obs_end_mjd",
-                "visit_gap",
-                "eclip_lat",
-                "eclip_lon",
-                "gal_lat",
-                "gal_lon",
-            ],
-            columns=visits.index,
-        ).T
-        visits = visits.merge(new_df, right_index=True, left_index=True)
-
-        visits = add_rubin_scheduler_cols(visits, instrument)
-        visits = add_rubin_sim_cols(visits, instrument, predicted_zeropoint_offsets)
-
-        return visits
-
-    def exclude_visits(self, visits: pd.DataFrame, bad_visit_ids: list[str]) -> pd.DataFrame:
-        """Remove the visits_ids in bad_visit_ids from visits.
-
-        Parameters
-        ----------
-        visits : `pd.DataFrame`
-            A dataframe containing visit information, with visit_id values.
-        bad_visit_ids : `list` [ `str` ]
-            The list of bad visit_ids to remove.
-            This could be generated from
-            rubin_nights.consdb.fetch_excluded_visits or
-            rubin_nights.targets_and_visits.flag_potential_bad_visits
-            or any other list of unwanted visit_ids.
-
-        Returns
-        -------
-        good_visits : `pd.DataFrame`
-            The visits dataframe but with bad_visit_ids removed.
-        """
-        if bad_visit_ids is not None and len(bad_visit_ids) > 0:
-            return visits.query("visit_id not in @bad_visit_ids")
 
     def query_ccdvisits(
         self,
         instrument: str,
         visit_id: int,
-        detector_min: int | None = 90,
-        detector_max: int | None = 98,
+        detector_min: int | None = None,
+        detector_max: int | None = None,
     ) -> pd.DataFrame:
         """Fetch ccdvisit data.
 
@@ -255,14 +124,15 @@ class ConsDb:
             The visit for which to fetch the detector values.
         detector_min, detector_max
             The minimum and maximum detector number to fetch.
-            The default values of 89/99
+            Values of None will fetch all detectors.
+            Values of `detector_min=90, detector_max=98` will fetch
+            the center raft.
 
         Returns
         -------
         ccdvisits : `pd.DataFrame`
             The visit information from cdb_{instrument}.visit1 and the
             per-detector ccdvisit information.
-            Mostly, I forget how to do this query so it's here as an example.
         """
         query = (
             f"select v.*, c.detector, cq.* "
@@ -282,14 +152,14 @@ class ConsDb:
 
 
 class ConsDbTap(ConsDb):
-    """Query the ConsDB TAP service.
+    """Query the ConsDB through the TAP service.
 
     Parameters
     ----------
-    api_base : `str`
+    api_base
         Base API for services.
         e.g. https://usdf-rsp.slac.stanford.edu
-    token : `str`
+    token
         The token for authentication.
     """
 
@@ -308,7 +178,7 @@ class ConsDbTap(ConsDb):
 
         Parameters
         ----------
-        query : `str`
+        query
             SQL query.
 
         Returns
@@ -324,16 +194,16 @@ class ConsDbTap(ConsDb):
 
 
 class ConsDbFastAPI(ConsDb):
-    """Query the ConsDB through the FastAPI interface.
+    """Query the ConsDB through the REST API / FastAPI interface.
 
     Parameters
     ----------
-    api_base : `str`
+    api_base
         Base API for services.
         e.g. https://usdf-rsp.slac.stanford.edu
-    auth : `tuple`
+    auth
         The username and password for authentication.
-    query_timeout : `float`
+    query_timeout
 
     """
 
@@ -343,6 +213,9 @@ class ConsDbFastAPI(ConsDb):
         timeout = httpx.Timeout(timeout=query_timeout, connect=30.0)
         self.httpx_client = httpx.Client(timeout=timeout, auth=self.auth)
 
+    def __del__(self):
+        self.httpx_client.close()
+
     def __repr__(self) -> str:
         return self.url
 
@@ -351,7 +224,7 @@ class ConsDbFastAPI(ConsDb):
 
         Parameters
         ----------
-        query : `str`
+        query
             SQL query.
 
         Returns
@@ -381,3 +254,68 @@ class ConsDbFastAPI(ConsDb):
             messages.columns = newcols
             messages.drop(messages.columns[indices], axis=1, inplace=True)
         return messages
+
+
+class ConsDbSql(ConsDb):
+    """Query the ConsDB through pandas with a SQLAlchemy Postgres connection.
+
+    Parameters
+    ----------
+    site
+        Two options for site, to connect directly to the postgres servers,
+        either "usdf" or "summit". Note that these postgres servers are
+        not exposed outside of the USDF or Summit; you must use
+        one of the other ConsDb query services in that case.
+
+    Notes
+    -----
+    Credentials must be available in ~/.lsst/postgres-credentials.txt
+
+    For access external to the USDF or summit, a different access method must
+    be used.
+    """
+
+    def __init__(self, site: str = "usdf") -> None:
+        # Internal to USDF the sql connection string is
+        # postgresql://usdf@usdf-summitdb-replica.slac.stanford.edu/exposurelog
+        # At summit the sql connection string is
+        # postgresql://usdf@postgresdb01.cp.lsst.org/exposurelog
+
+        # Authentication for the native postgres connection is via
+        # credentials in ~/.lsst/postgres-credentials.txt
+        if not HAS_SQLALCHEMY:
+            logging.warning(
+                "Cannot use ConsDbSql class without installing "
+                "SQLAlchemy. Please install sqlalchemy or use a different method."
+            )
+            return
+
+        if site.lower() == "summit":
+            self.conn_str = "postgresql+psycopg://usdf@postgresdb01.cp.lsst.org/exposurelog"
+        else:
+            self.conn_str = "postgresql+psycopg://usdf@usdf-summitdb-replica.slac.stanford.edu/exposurelog"
+
+        self.engine = sqlalchemy.create_engine(self.conn_str)
+        self.conn = self.engine.connect()
+
+    def __del__(self):
+        self.conn.close()
+        self.engine.dispose()
+
+    def __repr__(self) -> str:
+        return self.conn_str
+
+    def query(self, query) -> pd.DataFrame:
+        """Execute a SQL query
+
+        Parameters
+        ----------
+        query : `str`
+            SQL query.
+
+        Returns
+        -------
+        results : `pd.DataFrame`
+        """
+        result = pd.read_sql(query, self.conn)
+        return result

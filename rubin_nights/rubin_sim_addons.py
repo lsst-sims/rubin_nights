@@ -61,7 +61,7 @@ def add_rubin_sim_cols(
         logger.info("No rubin_sim available, simply returning visits.")
         return visits
 
-    necessary_cols = ["zero_point_median", "psf_sigma_median", "sky_bg_median"]
+    necessary_cols = ["zero_point_median", "sky_bg_median"]
     for c in necessary_cols:
         if c not in visits.columns:
             logger.info("Missing columns for psf_sigma_median, zero_point_median or sky_bg_median.")
@@ -109,21 +109,22 @@ def add_rubin_sim_cols(
         # Convert sky counts/pixel to magnitude/arcsecond^2
         zp_sky = predicted_zeropoint_hardware(x.band, x.shut_time) + predicted_zeropoint_offsets[x.band]
         # replace PLATESCALE with x.pixel_scale_median when available
-        if np.isnan(x.pixel_scale_median):
-            pixel_scale = PLATESCALE
-        else:
+        if "pixel_scale_median" in x and not np.isnan(x.pixel_scale_median):
             pixel_scale = x.pixel_scale_median
+        else:
+            pixel_scale = PLATESCALE
         x.sky_bg_median_mag = -2.5 * np.log10(x.sky_bg_median / pixel_scale**2) + zp_sky
         return x
 
     visits = visits.apply(calc_predicted_zeropoints, axis=1)
     visits.clouds = visits.zero_point_1s_pred - visits.zero_point_1s
-    # Calculate predicted m5 with an estimate of readnoise
-    noise_instr_sq = 13
-    total_noise_sq = visits.psf_area_median * (visits.sky_bg_median + noise_instr_sq)
-    snr = 5
-    counts_5sigma = (snr**2) / (2) + np.sqrt((snr**4) / (4) + snr**2 * total_noise_sq)
-    visits.cat_m5 = -2.5 * np.log10(counts_5sigma) + visits.zero_point_median
+    if "psf_area_median" in visits.columns:
+        # Calculate predicted m5 with an estimate of readnoise
+        noise_instr_sq = 10
+        total_noise_sq = visits.psf_area_median * (visits.sky_bg_median + noise_instr_sq)
+        snr = 5
+        counts_5sigma = (snr**2) / (2) + np.sqrt((snr**4) / (4) + snr**2 * total_noise_sq)
+        visits.cat_m5 = -2.5 * np.log10(counts_5sigma) + visits.zero_point_median
 
     return visits
 
@@ -168,9 +169,19 @@ def consdb_to_opsim(consdb_visits: pd.DataFrame) -> pd.DataFrame | None:
         "clouds": "cloud_extinction",
     }
 
-    for key in opsim_mapping.keys():
+    # The critical values for an opsim simulation:
+    critical_columns = [
+        "s_ra",
+        "s_dec",
+        "sky_rotation",
+        "band",
+        "obs_start_mjd",
+        "exp_time",
+        "scheduler_note",
+    ]
+    for key in critical_columns:
         if key not in consdb_visits:
-            logging.warning("Run consdb.augment_visits first")
+            logging.warning("Missing critical columns for opsim input")
             return None
 
     opsim_visits = consdb_visits.rename(opsim_mapping, axis=1)

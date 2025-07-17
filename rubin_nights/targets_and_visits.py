@@ -95,7 +95,7 @@ def targets_and_visits(
         instrument = "latiss"
     else:
         instrument = "lsstcam"
-    visits = endpoints["consdb"].get_visits(instrument, t_start, t_end, augment_visits=True)
+    visits = endpoints["consdb"].get_visits(instrument, t_start, t_end, augment=True)
     logger.debug(f"{len(visits)} visits")
 
     # In theory, targets and observations could be merged directly on targetId.
