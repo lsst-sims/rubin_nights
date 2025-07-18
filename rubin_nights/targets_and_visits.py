@@ -148,7 +148,11 @@ def targets_and_visits(
             )
             t_to.sort_values(by="time", inplace=True)
         to.append(t_to)
-    to = pd.concat(to)
+    if len(to) == 0:
+        # No information; make a minimal dataframe to be able to continue.
+        to = pd.DataFrame([], columns=["targetId", "blockId", "skyAngle"])
+    else:
+        to = pd.concat(to)
     to = to.astype({"targetId": int, "blockId": int, "skyAngle": float})
     to.drop([c for c in to.columns if "private" in c], axis=1, inplace=True)
     logger.debug(f"Joined targets and observations for {len(to)} events")
