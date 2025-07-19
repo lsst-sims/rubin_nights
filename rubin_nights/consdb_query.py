@@ -239,6 +239,13 @@ class ConsDbFastAPI(ConsDb):
             logger.warning(f"An error occurred while requesting {exc.request.url!r}.")
         except httpx.HTTPStatusError as exc:
             logger.warning(f"Error response {exc.response.status_code} while requesting {exc.request.url!r}.")
+            # This is quite likely to be a problem with the sql query
+            # which will be passed in the response.json()
+            try:
+                sql_problems = response.json()["message"].replace("\n\n", "\n")
+                logger.warning(f"{sql_problems}")
+            except httpx.JSONDecodeError:
+                pass
         if response.status_code != 200:
             messages = []
         else:
