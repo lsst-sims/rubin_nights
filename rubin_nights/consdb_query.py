@@ -206,8 +206,10 @@ class ConsDbFastAPI(ConsDb):
     query_timeout
 
     """
-
-    def __init__(self, api_base: str, auth: tuple, query_timeout: float = 5 * 60 * 60):
+    # From within the USDF RSP, you could also use
+    # http://consdb-pq.consdb:8080/ for the ConsDB api_base.
+    # This may be slightly faster without F5 load balancer packet checking.
+    def __init__(self, api_base: str, auth: tuple, query_timeout: float = 10 * 60):
         self.url = api_base + "/consdb/query"
         self.auth = auth
         timeout = httpx.Timeout(timeout=query_timeout, connect=30.0)
