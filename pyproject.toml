@@ -31,9 +31,12 @@ dependencies = [
 
 [project.optional-dependencies]
 rubin = [
+    "healpy",
     "lsst-resources",
+    "psycopg",
     "rubin-scheduler",
     "rubin-sim",
+    "sqlalchemy",
 ]
 test = [
      "pytest",
