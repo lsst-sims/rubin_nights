@@ -206,6 +206,7 @@ class ConsDbFastAPI(ConsDb):
     query_timeout
 
     """
+
     # From within the USDF RSP, you could also use
     # http://consdb-pq.consdb:8080/ for the ConsDB api_base.
     # This may be slightly faster without F5 load balancer packet checking.

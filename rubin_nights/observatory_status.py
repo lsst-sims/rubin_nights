@@ -37,7 +37,7 @@ def mtm1m3_slewflag_times(t_start: Time, t_end: Time, efd_client: InfluxQueryCli
     slew_end = efd_client.select_time_series(
         "lsst.sal.MTM1M3.command_clearSlewFlag", ["private_identity"], t_start, t_end
     )
-    # There are occasional things that look like errors?
+    # We can only match the "Script:" entries (with script salindex values).
     slew_start = slew_start.query("private_identity.str.contains('Script:')")
     slew_end = slew_end.query("private_identity.str.contains('Script:')")
     slew_start["scriptSalIndex"] = slew_start.private_identity.str.strip("Script:").astype(int)
