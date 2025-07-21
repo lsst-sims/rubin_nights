@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from astropy.time import Time, TimeDelta
 
-__all__ = ["LoggingServiceClient", "NightReportClient", "ExposureLogClient"]
+__all__ = ["NightReportClient", "NarrativeLogClient", "ExposureLogClient"]
 
 
 logger = logging.getLogger(__name__)
