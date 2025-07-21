@@ -174,6 +174,7 @@ def add_model_slew_times(
     visits: pd.DataFrame,
     efd_client: InfluxQueryClient,
     model_settle: float = 1,
+    dome_crawl: bool = True,
     ideal_tma: float = 40,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """ "Add model (applied tma limits plus FBS-default tma limits) calculated
@@ -194,6 +195,8 @@ def add_model_slew_times(
         The amount of settle time to add to the model_slew.
         This should make the model_slew time match the TMAevent time.
         Might vary over time.
+    dome_crawl
+        Enable dome crawl when calculating slew times, if True.
     ideal_tma
         Model TMA movement value to use for the ideal model, in percent.
 
@@ -269,7 +272,13 @@ def add_model_slew_times(
                     mjd = np.array([v.obs_start_mjd])
                     band = np.array([v.band])
                     slewtime = kinematic_model.slew_times(
-                        ra_rad, dec_rad, mjd, rot_sky_pos=sky_angle, bandname=band, update_tracking=True
+                        ra_rad,
+                        dec_rad,
+                        mjd,
+                        rot_sky_pos=sky_angle,
+                        bandname=band,
+                        lax_dome=dome_crawl,
+                        update_tracking=True,
                     )
                     if isinstance(slewtime, float):
                         model_slewtimes[visitid] = slewtime
@@ -277,7 +286,13 @@ def add_model_slew_times(
                         model_slewtimes[visitid] = slewtime[0]
 
                     slewtime = kinematic_model_ideal.slew_times(
-                        ra_rad, dec_rad, mjd, rot_sky_pos=sky_angle, bandname=band, update_tracking=True
+                        ra_rad,
+                        dec_rad,
+                        mjd,
+                        rot_sky_pos=sky_angle,
+                        bandname=band,
+                        lax_dome=dome_crawl,
+                        update_tracking=True,
                     )
                     if isinstance(slewtime, float):
                         model_slewtimes_ideal[visitid] = slewtime
