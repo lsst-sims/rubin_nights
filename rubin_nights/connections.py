@@ -108,20 +108,11 @@ def get_clients(tokenfile: str | None = None, site: str | None = None) -> dict:
             site = "usdf-dev"
         elif "usdf-rsp" in location:
             site = "usdf"
-        if site is not None and site.startswith("usdf"):
-            # Also set up some env variables specific to USDF-RSP
-            os.environ["no_proxy"] += ",.consdb"
-            os.environ["RUBIN_SIM_DATA_DIR"] = "/sdf/data/rubin/shared/rubin_sim_data"
         # Otherwise, use the USDF resources, outside of the RSP
         if site is None:
             site = "usdf"
     else:
         site = site
-
-    if site == "usdf":
-        # And some env variables for S3 through USDF
-        os.environ["LSST_DISABLE_BUCKET_VALIDATION"] = "1"
-        os.environ["S3_ENDPOINT_URL"] = "https://s3dfrgw.slac.stanford.edu/"
 
     api_base = api_endpoints[site]
     narrative_log = NarrativeLogClient(api_base, auth)
@@ -132,6 +123,19 @@ def get_clients(tokenfile: str | None = None, site: str | None = None) -> dict:
     efd_client = InfluxQueryClient(site, db_name="efd")
     obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv")
     sasquatch_client = InfluxQueryClient("usdfdev", db_name="lsst.dm")
+
+    # Be extra helpful with environment variables if using USDF for LFA
+    if "usdf" in site:
+        # And some env variables for S3 through USDF
+        os.environ["LSST_DISABLE_BUCKET_VALIDATION"] = "1"
+        os.environ["S3_ENDPOINT_URL"] = "https://s3dfrgw.slac.stanford.edu/"
+    # Or if you're actually using one of the USDF RSPs (or kubernetes)
+    if "usdf" in os.getenv("EXTERNAL_INSTANCE_URL", ""):
+        # Use shared RUBIN_SIM_DATA_DIR
+        os.environ["RUBIN_SIM_DATA_DIR"] = "/sdf/data/rubin/shared/rubin_sim_data"
+        # And swap to http consdb address instead of https
+        consdb_query = ConsDbFastAPI("http://consdb-pq.consdb:8080/consdb", token=token)
+        os.environ["no_proxy"] += ",.consdb"
 
     endpoints = {
         "api_base": api_base,
