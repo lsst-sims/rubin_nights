@@ -1,5 +1,6 @@
 """Execute queries for the ConsDB."""
 
+import datetime
 import logging
 
 import httpx
@@ -249,6 +250,7 @@ class ConsDbFastAPI(ConsDb):
                 logger.warning(f"{sql_problems}")
             except httpx.JSONDecodeError:
                 pass
+            logger.warning(f"UTC time {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}")
         if response.status_code != 200:
             messages = []
         else:
