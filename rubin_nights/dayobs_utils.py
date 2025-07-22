@@ -1,5 +1,6 @@
 import astropy.units as u
 from astroplan import Observer
+from astropy.coordinates.errors import UnknownSiteException
 from astropy.time import Time, TimeDelta
 
 __all__ = [
@@ -70,7 +71,11 @@ def day_obs_sunset_sunrise(day_obs: str | int, sun_alt: float = -12) -> tuple[Ti
     if "-" not in day_obs:
         day_obs = day_obs_int_to_str(day_obs)
     day_obs_time = Time(f"{day_obs}T12:00:00", format="isot", scale="tai")
-    observer = Observer.at_site("Rubin")
+    try:
+        observer = Observer.at_site("Rubin")
+    except UnknownSiteException:
+        # Better to use Rubin, but old astropy installs might not have it.
+        observer = Observer.at_site("Cerro Pachon")
     sunset = Time(observer.sun_set_time(day_obs_time, which="next", horizon=sun_alt * u.deg), format="jd")
     sunrise = Time(observer.sun_rise_time(day_obs_time, which="next", horizon=sun_alt * u.deg), format="jd")
     return (sunset, sunrise)
