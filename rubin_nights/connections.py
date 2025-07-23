@@ -134,8 +134,8 @@ def get_clients(tokenfile: str | None = None, site: str | None = None) -> dict:
         # Use shared RUBIN_SIM_DATA_DIR
         os.environ["RUBIN_SIM_DATA_DIR"] = "/sdf/data/rubin/shared/rubin_sim_data"
         # And swap to http consdb address instead of https
-        consdb_query = ConsDbFastAPI("http://consdb-pq.consdb:8080/consdb", token=token)
-        os.environ["no_proxy"] += ",.consdb"
+        # consdb_query = ConsDbFastAPI("http://consdb-pq.consdb:8080", auth=None)
+        # os.environ["no_proxy"] += ",.consdb"
 
     endpoints = {
         "api_base": api_base,

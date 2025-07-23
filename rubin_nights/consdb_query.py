@@ -248,9 +248,11 @@ class ConsDbFastAPI(ConsDb):
             try:
                 sql_problems = response.json()["message"].replace("\n\n", "\n")
                 logger.warning(f"{sql_problems}")
-            except httpx.JSONDecodeError:
+            except Exception:
                 pass
-            logger.warning(f"UTC time {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.warning(
+                f"Error at UTC time {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}"
+            )
         if response.status_code != 200:
             messages = []
         else:
