@@ -131,11 +131,9 @@ def get_clients(tokenfile: str | None = None, site: str | None = None) -> dict:
         os.environ["S3_ENDPOINT_URL"] = "https://s3dfrgw.slac.stanford.edu/"
     # Or if you're actually using one of the USDF RSPs (or kubernetes)
     if "usdf" in os.getenv("EXTERNAL_INSTANCE_URL", ""):
-        # Use shared RUBIN_SIM_DATA_DIR
-        os.environ["RUBIN_SIM_DATA_DIR"] = "/sdf/data/rubin/shared/rubin_sim_data"
-        # And swap to http consdb address instead of https
-        # consdb_query = ConsDbFastAPI("http://consdb-pq.consdb:8080", auth=None)
-        # os.environ["no_proxy"] += ",.consdb"
+        if os.getenv("RUBIN_SIM_DATA_DIR") is None:
+            # Use shared RUBIN_SIM_DATA_DIR
+            os.environ["RUBIN_SIM_DATA_DIR"] = "/sdf/data/rubin/shared/rubin_sim_data"
 
     endpoints = {
         "api_base": api_base,
