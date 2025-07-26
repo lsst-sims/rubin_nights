@@ -211,10 +211,10 @@ class ConsDbFastAPI(ConsDb):
     # From within the USDF RSP, you could also use
     # http://consdb-pq.consdb:8080/ for the ConsDB api_base.
     # This may be slightly faster without F5 load balancer packet checking.
-    def __init__(self, api_base: str, auth: tuple, query_timeout: float = 20 * 60):
+    def __init__(self, api_base: str, auth: tuple, query_timeout: float = 10 * 60):
         self.url = api_base + "/consdb/query"
         self.auth = auth
-        timeout = httpx.Timeout(timeout=query_timeout, connect=30.0)
+        timeout = httpx.Timeout(timeout=query_timeout, connect=120.0)
         self.httpx_client = httpx.Client(timeout=timeout, auth=self.auth)
 
     def __del__(self):
@@ -240,17 +240,17 @@ class ConsDbFastAPI(ConsDb):
             response = self.httpx_client.post(self.url, json=params)
             response.raise_for_status()
         except httpx.RequestError as exc:
-            logger.warning(f"An error occurred while requesting {exc.request.url!r}.")
+            logger.error(f"An error occurred while requesting {exc.request.url!r}.")
         except httpx.HTTPStatusError as exc:
-            logger.warning(f"Error response {exc.response.status_code} while requesting {exc.request.url!r}.")
+            logger.error(f"Error response {exc.response.status_code} while requesting {exc.request.url!r}.")
             # This is quite likely to be a problem with the sql query
             # which will be passed in the response.json()
             try:
                 sql_problems = response.json()["message"].replace("\n\n", "\n")
-                logger.warning(f"{sql_problems}")
+                logger.error(f"{sql_problems}")
             except Exception:
                 pass
-            logger.warning(
+            logger.error(
                 f"Error at UTC time {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}"
             )
         if response.status_code != 200:
