@@ -5,7 +5,7 @@ import pandas as pd
 from astropy.time import Time
 
 try:
-    from rubin_sim.phot_utils import predicted_zeropoint, predicted_zeropoint_hardware
+    from rubin_sim.phot_utils import predicted_zeropoint, predicted_zeropoint_hardware, calc_neff
 
     HAS_RUBIN_SIM = True
 except ModuleNotFoundError:
@@ -22,6 +22,7 @@ ZEROPOINT_OFFSETS_LSSTCOMCAM = {"u": 0.26, "g": -0.14, "r": -0.09, "i": -0.10, "
 ZEROPOINT_OFFSETS_DP1 = {"u": 0.03, "g": 0.01, "r": 0.00, "i": 0.00, "z": -0.00, "y": 0.01}
 # Approximate pixel scale
 PLATESCALE = 0.2
+GAUSSIAN_FWHM_OVER_SIGMA: float = 2.0 * np.sqrt(2.0 * np.log(2.0))
 
 
 def add_rubin_sim_cols(
@@ -121,10 +122,20 @@ def add_rubin_sim_cols(
 
     visits = visits.apply(calc_predicted_zeropoints, axis=1)
     visits.clouds = visits.zero_point_1s_pred - visits.zero_point_1s
-    if "psf_area_median" in visits.columns:
+    if "psf_sigma_median" in visits.columns:
         # Calculate predicted m5 with an estimate of readnoise
         noise_instr_sq = 10
-        total_noise_sq = visits.psf_area_median * (visits.sky_bg_median + noise_instr_sq)
+        # psf_area_median would be good to use but going from fwhm_eff
+        # makes us more internally self-consistent
+        if "pixel_scale_median" in visits.columns:
+            pixel_scale = np.where(
+                np.isnan(visits.pixel_scale_median.values), PLATESCALE, visits.pixel_scale_median.values
+            )
+        else:
+            pixel_scale = PLATESCALE
+        fwhm_eff = visits.psf_sigma_median * GAUSSIAN_FWHM_OVER_SIGMA * pixel_scale
+        neff = calc_neff(fwhm_eff, pixel_scale)
+        total_noise_sq = neff * (visits.sky_bg_median + noise_instr_sq)
         snr = 5
         counts_5sigma = (snr**2) / (2) + np.sqrt((snr**4) / (4) + snr**2 * total_noise_sq)
         visits.cat_m5 = -2.5 * np.log10(counts_5sigma) + visits.zero_point_median
