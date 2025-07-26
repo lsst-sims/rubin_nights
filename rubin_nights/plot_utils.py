@@ -15,12 +15,12 @@ __all__ = ["PlotStyles", "detector_plot"]
 @dataclass
 class PlotStyles:
     band_colors = {
-        "u": "#61A2B3",
+        "u": "#1600EA",
         "g": "#31DE1F",
         "r": "#B52626",
-        "i": "#1600EA",
+        "i": "#370201",
         "z": "#BA52FF",
-        "y": "#370201",
+        "y": "#61A2B3",
     }
     band_symbols = {"u": "o", "g": "^", "r": "v", "i": "s", "z": "*", "y": "p"}
     band_linestyles = {
