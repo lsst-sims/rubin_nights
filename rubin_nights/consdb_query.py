@@ -214,7 +214,7 @@ class ConsDbFastAPI(ConsDb):
     def __init__(self, api_base: str, auth: tuple, query_timeout: float = 10 * 60):
         self.url = api_base + "/consdb/query"
         self.auth = auth
-        timeout = httpx.Timeout(timeout=query_timeout, connect=120.0)
+        timeout = httpx.Timeout(timeout=query_timeout, connect=60.0)
         self.httpx_client = httpx.Client(timeout=timeout, auth=self.auth)
 
     def __del__(self):
