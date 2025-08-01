@@ -28,19 +28,29 @@ class InfluxQueryClient:
         If False, results are returned as a list of dictionaries.
     """
 
-    def __init__(self, site: str = "usdf", db_name: str = "efd", results_as_dataframe: bool = True) -> None:
+    def __init__(
+        self,
+        site: str = "usdf",
+        db_name: str = "efd",
+        query_timeout=5 * 60,
+        results_as_dataframe: bool = True,
+    ) -> None:
         if site == "usdf-dev":
             site = "usdf"
         self.site = site + "_efd"
         self._fetch_credentials()
         self.db_name = db_name
         self.results_as_dataframe = results_as_dataframe
-        timeout = httpx.Timeout(300, connect=30.0)
+        timeout = httpx.Timeout(query_timeout, connect=10.0)
         self.httpx_client = httpx.Client(timeout=timeout, auth=self.auth)
 
     def _fetch_credentials(self):
         creds_service = f"https://roundtable.lsst.codes/segwarides/creds/{self.site}"
-        efd_creds = httpx.get(creds_service)
+        try:
+            efd_creds = httpx.get(creds_service)
+        except Exception as e:
+            logger.error(f"Could not fetch credentials for {self.site}")
+            efd_creds.raise_for_status()
         efd_creds = efd_creds.json()
         self.auth = (efd_creds["username"], efd_creds["password"])
         self.url = "https://" + efd_creds["host"] + efd_creds["path"] + "query"
