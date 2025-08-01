@@ -215,7 +215,8 @@ class ConsDbFastAPI(ConsDb):
         self.url = api_base + "/consdb/query"
         self.auth = auth
         timeout = httpx.Timeout(timeout=query_timeout, connect=60.0)
-        self.httpx_client = httpx.Client(timeout=timeout, auth=self.auth)
+        transport = httpx.HTTPTransport(retries=2)
+        self.httpx_client = httpx.Client(timeout=timeout, transport=transport, auth=self.auth)
 
     def __del__(self):
         self.httpx_client.close()
@@ -241,10 +242,14 @@ class ConsDbFastAPI(ConsDb):
             response.raise_for_status()
         except httpx.RequestError as exc:
             logger.error(f"An error occurred while requesting {exc.request.url!r}.")
+            logger.error(
+                f"Error at UTC time {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}"
+            )
         except httpx.HTTPStatusError as exc:
+            # This might be a problem with the server closing the connection
+            # Or it might be a problem with the sql query.
+            # All messages from the database are in the response.
             logger.error(f"Error response {exc.response.status_code} while requesting {exc.request.url!r}.")
-            # This is quite likely to be a problem with the sql query
-            # which will be passed in the response.json()
             try:
                 sql_problems = response.json()["message"].replace("\n\n", "\n")
                 logger.error(f"{sql_problems}")
@@ -331,5 +336,9 @@ class ConsDbSql(ConsDb):
         -------
         results : `pd.DataFrame`
         """
-        result = pd.read_sql(query, self.conn)
+        try:
+            result = pd.read_sql(query, self.conn)
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(e.message)
         return result
