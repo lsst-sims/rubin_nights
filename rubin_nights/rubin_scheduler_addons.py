@@ -121,6 +121,10 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
         "moon_Dec",
         "moon_distance",
         "moon_illum",
+        "sun_alt",
+        "sun_az",
+        "sun_RA",
+        "sun_Dec",
     ]
     new_df = pd.DataFrame(np.zeros((len(visits), len(new_cols))), columns=new_cols, index=visits.index)
 
@@ -139,8 +143,14 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
     almanac = Almanac()
 
     avals = almanac.get_sun_moon_positions(visits["exp_midpt_mjd"].values)
-    new_df["moon_alt"], new_df["moon_az"] = np.degrees([avals["moon_alt"][0], avals["moon_az"][0]])
-    new_df["moon_RA"], new_df["moon_Dec"] = np.degrees([avals["moon_RA"][0], avals["moon_dec"][0]])
+    new_df["sun_alt"] = np.degrees(avals["sun_alt"])
+    new_df["moon_az"] = np.degrees(avals["sun_az"])
+    new_df["sun_RA"] = np.degrees(avals["sun_RA"])
+    new_df["sun_dec"] = np.degrees(avals["sun_dec"])
+    new_df["moon_alt"] = np.degrees(avals["moon_alt"])
+    new_df["moon_az"] = np.degrees(avals["moon_az"])
+    new_df["moon_RA"] = np.degrees(avals["moon_RA"])
+    new_df["moon_Dec"] = np.degrees(avals["moon_dec"])
     new_df["moon_distance"] = angular_separation(
         new_df["moon_RA"].values, new_df["moon_Dec"].values, visits["s_ra"].values, visits["s_dec"].values
     )
