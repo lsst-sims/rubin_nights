@@ -212,17 +212,18 @@ class ConsDbFastAPI(ConsDb):
     # http://consdb-pq.consdb:8080/ for the ConsDB api_base.
     # This may be slightly faster without F5 load balancer packet checking.
     def __init__(self, api_base: str, auth: tuple, query_timeout: float = 10 * 60):
-        self.url = api_base + "/consdb/query"
-        self.auth = auth
+        self.base_url = api_base + "/consdb"
         timeout = httpx.Timeout(timeout=query_timeout, connect=60.0)
         transport = httpx.HTTPTransport(retries=2)
-        self.httpx_client = httpx.Client(timeout=timeout, transport=transport, auth=self.auth)
+        self.httpx_client = httpx.Client(
+            base_url=self.base_url, timeout=timeout, transport=transport, auth=auth
+        )
 
     def __del__(self):
         self.httpx_client.close()
 
     def __repr__(self) -> str:
-        return self.url
+        return self.base_url
 
     def query(self, query) -> pd.DataFrame:
         """Execute FastAPI ConsDB query.
@@ -238,7 +239,17 @@ class ConsDbFastAPI(ConsDb):
         """
         params = {"query": query}
         try:
-            response = self.httpx_client.post(self.url, json=params)
+            response = self.httpx_client.post("/query", json=params)
+            if response.status_code == 500:
+                sql_problems = response.json()["message"].replace("\n\n", "\n")
+                if "OperationalError" in sql_problems:
+                    # Just try again - consdb to FastAPI fell asleep?
+                    logger.info(
+                        f"Consdb Operational error at "
+                        f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')} "
+                        f"- trying again."
+                    )
+                    response = self.httpx_client.post("/query", json=params)
             response.raise_for_status()
         except httpx.RequestError as exc:
             logger.error(f"An error occurred while requesting {exc.request.url!r}.")
