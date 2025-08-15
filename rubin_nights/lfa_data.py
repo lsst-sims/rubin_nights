@@ -47,7 +47,7 @@ def get_scheduler_snapshot(uri: str, at_usdf: bool = True):
     return scheduler, conditions
 
 
-def get_dream_cloud_maps(uri: str, at_usdf: bool = True) -> np.ndarray:
+def get_dream_cloud_maps(uri: str, at_usdf: bool = True) -> tuple[np.ndarray, np.ndarray]:
     if at_usdf:
         uri = usdf_lfa(uri, bucket="s3://lfa@")
         os.environ["LSST_DISABLE_BUCKET_VALIDATION"] = "1"
@@ -55,4 +55,6 @@ def get_dream_cloud_maps(uri: str, at_usdf: bool = True) -> np.ndarray:
     h5f = h5py.File(io.BytesIO(resource.read()), mode="r")
     cloud_map = h5f["clouds"][...]
     cloud_map = hp.reorder(cloud_map, n2r=True)
-    return cloud_map
+    cloud_sigma = h5f["sigma"][...]
+    cloud_sigma = hp.reorder(cloud_sigma, n2r=True)
+    return cloud_map, cloud_sigma

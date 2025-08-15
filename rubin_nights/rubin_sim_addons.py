@@ -5,7 +5,7 @@ import pandas as pd
 from astropy.time import Time
 
 try:
-    from rubin_sim.phot_utils import predicted_zeropoint, predicted_zeropoint_hardware, calc_neff
+    from rubin_sim.phot_utils import calc_neff, predicted_zeropoint, predicted_zeropoint_hardware
 
     HAS_RUBIN_SIM = True
 except ModuleNotFoundError:
