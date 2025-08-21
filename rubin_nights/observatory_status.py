@@ -9,7 +9,7 @@ from .influx_query import InfluxQueryClient, day_obs_from_index
 # from lsst.ts.xml.sal_enums import State as CSCState
 
 
-__all__ = ["mtm1m3_slewflag_times", "get_rotator_limits", "get_tma_limits"]
+__all__ = ["get_dome_open_close", "mtm1m3_slewflag_times", "get_rotator_limits", "get_tma_limits"]
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,11 @@ def get_dome_open_close(t_start: Time, t_end: Time, efd_client: InfluxQueryClien
     # this should come from lsst.sal.MTDome.logevent_shutterMotion
     # instead, once logevent_shutterMotion becomes reliable.
     dome_shutter = efd_client.query(query)
+    if len(dome_shutter) == 0:
+        # Make and return an empty data frame with the expected columns
+        dome_shutter = pd.DataFrame([], columns=["day_obs", "open_time", "close_time", "open_hours"])
+        return dome_shutter
+
     # Add day_obs
     dome_shutter["day_obs"] = dome_shutter.apply(day_obs_from_index, axis=1)
     # Find open/close times in each dayobs
