@@ -1,14 +1,19 @@
 import logging
 
 import httpx
+import numpy as np
 import pandas as pd
 from astropy.time import Time
 
 logger = logging.getLogger(__name__)
 
-__all__ = [
-    "InfluxQueryClient",
-]
+__all__ = ["InfluxQueryClient", "day_obs_from_index"]
+
+
+def day_obs_from_index(x):
+    """Use with pandas apply(efd_values, axis=1) to get dayobs."""
+    dayobs_time = Time(np.floor(Time(x.name, scale="utc").tai.mjd - 0.5), format="mjd", scale="tai")
+    return int(dayobs_time.isot.split("T")[0].replace("-", ""))
 
 
 class InfluxQueryClient:
@@ -32,17 +37,17 @@ class InfluxQueryClient:
         self,
         site: str = "usdf",
         db_name: str = "efd",
-        query_timeout=5 * 60,
+        query_timeout: float = 5 * 60,
         results_as_dataframe: bool = True,
     ) -> None:
         if site == "usdf-dev":
             site = "usdf"
         self.site = site + "_efd"
-        self._fetch_credentials()
+        self.url, auth = self._fetch_credentials()
         self.db_name = db_name
         self.results_as_dataframe = results_as_dataframe
         timeout = httpx.Timeout(query_timeout, connect=10.0)
-        self.httpx_client = httpx.Client(timeout=timeout, auth=self.auth)
+        self.httpx_client = httpx.Client(base_url=self.url, timeout=timeout, auth=auth)
 
     def _fetch_credentials(self):
         creds_service = f"https://roundtable.lsst.codes/segwarides/creds/{self.site}"
@@ -50,10 +55,12 @@ class InfluxQueryClient:
             efd_creds = httpx.get(creds_service)
         except Exception as e:
             logger.error(f"Could not fetch credentials for {self.site}")
+            logger.error(e)
             efd_creds.raise_for_status()
         efd_creds = efd_creds.json()
-        self.auth = (efd_creds["username"], efd_creds["password"])
-        self.url = "https://" + efd_creds["host"] + efd_creds["path"] + "query"
+        auth = (efd_creds["username"], efd_creds["password"])
+        url = "https://" + efd_creds["host"] + efd_creds["path"].rstrip("/")
+        return url, auth
 
     def __repr__(self):
         return f"{self.db_name} at {self.url}"
@@ -63,7 +70,7 @@ class InfluxQueryClient:
         params = {"db": self.db_name, "q": query}
         try:
             response = self.httpx_client.get(
-                self.url,
+                "/query",
                 params=params,
             )
             response.raise_for_status()

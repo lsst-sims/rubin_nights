@@ -3,13 +3,71 @@ import logging
 import numpy as np
 import pandas as pd
 from astropy.time import Time
-from lsst.ts.xml.sal_enums import State as CSCState
 
-from .influx_query import InfluxQueryClient
+from .influx_query import InfluxQueryClient, day_obs_from_index
+
+# from lsst.ts.xml.sal_enums import State as CSCState
+
 
 __all__ = ["mtm1m3_slewflag_times", "get_rotator_limits", "get_tma_limits"]
 
 logger = logging.getLogger(__name__)
+
+
+def get_dome_open_close(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
+    """Dataframe containing the open and close times for Simonyi dome,
+    from ~50% positionActual shutter values `lsst.sal.MTDome.apertureShutter`.
+
+    Parameters
+    ----------
+    t_start
+        Time of the start of the events.
+    t_end
+        Time of the end of the events.
+    efd_client
+        Sync EFD client.
+
+    Returns
+    -------
+    dome_open_close : `pd.DataFrame`
+        Dataframe containing pairs of open/close datetimes + elapsed time
+        for each dome-open period in each day_obs.
+    """
+    # Get dome open/close information
+    query = (
+        "SELECT positionActual0, positionActual1, "
+        "positionCommanded0, positionCommanded1 FROM "
+        '"lsst.sal.MTDome.apertureShutter" WHERE '
+        f"time >= '{t_start.isot}Z' AND time <= '{t_end.isot}Z' "
+        "AND (abs(positionActual0) >= 48 and abs(positionActual0) <= 55) "
+        "and (abs(positionActual1) >= 48 and abs(positionActual1) <= 55)"
+    )
+    # this should come from lsst.sal.MTDome.logevent_shutterMotion
+    # instead, once logevent_shutterMotion becomes reliable.
+    dome_shutter = efd_client.query(query)
+    # Add day_obs
+    dome_shutter["day_obs"] = dome_shutter.apply(day_obs_from_index, axis=1)
+    # Find open/close times in each dayobs
+    dome_open = []
+    for day_obs in dome_shutter.day_obs.unique():
+        # dome open/close events
+        dd = dome_shutter.query("day_obs == @day_obs")
+        opening = dd.query("positionCommanded0 == 100 or positionCommanded1 == 100")
+        if len(opening) > 0:
+            gaps = np.concatenate(
+                [np.array([0]), np.where((np.diff(opening.index) / pd.Timedelta(1, "s")) > 5 * 60)[0]]
+            )
+            open_start = opening.iloc[gaps].index.values
+            closing = dd.query("positionCommanded0 == 0 or positionCommanded1 == 0")
+            gaps = np.concatenate(
+                [np.array([0]), np.where((np.diff(closing.index) / pd.Timedelta(1, "s")) > 5 * 60)[0]]
+            )
+            close_start = closing.iloc[gaps].index.values
+            for os, cs in zip(open_start, close_start):
+                open_hours = (cs - os) / pd.Timedelta(1, "s") / 60 / 60
+                dome_open.append([day_obs, os, cs, open_hours])
+    dome_open = pd.DataFrame(dome_open, columns=["day_obs", "open_time", "close_time", "open_hours"])
+    return dome_open
 
 
 def mtm1m3_slewflag_times(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
@@ -44,21 +102,24 @@ def mtm1m3_slewflag_times(t_start: Time, t_end: Time, efd_client: InfluxQueryCli
     slew_end["scriptSalIndex"] = slew_end.private_identity.str.strip("Script:").astype(int)
 
     # Check which queues to check for restarts (probably just 1)
-    # queue_indexes = np.unique(np.floor(slew_start.scriptSalIndex.values / 1e5))
+    # queue_indexes = np.unique(np.floor(slew_start.scriptSalIndex.values/1e5))
 
     # ScriptQueue restarts -- should do this
     # slew_start_idx = []
     # slew_end_idx = []
     # for queue_index in queue_indexes:
-    #     enabled_state = CSCState.ENABLED.value  # noqa: F841
+    #     enabled_state = CSCState.ENABLED.value
     #     topic = "lsst.sal.ScriptQueue.logevent_summaryState"
     #     fields = ["summaryState"]
-    #     dd = efd_client.select_time_series(topic, fields, t_start, t_end, index=int(queue_index))
+    #     dd = efd_client.select_time_series(topic, fields,
+    #     t_start, t_end, index=int(queue_index))
     #     if len(dd) > 0:
     #         # Identify re-enable times
     #         restarts = dd.query("summaryState == @enabled_state")
-    #         slew_start_idx.append(np.searchsorted(slew_start.index.values, restarts.index.values))
-    #         slew_end_idx.append(np.searchsorted(slew_end.index.values, restarts.index.values))
+    #         slew_start_idx.append(np.searchsorted(slew_start.index.values,
+    #         restarts.index.values))
+    #         slew_end_idx.append(np.searchsorted(slew_end.index.values,
+    #         restarts.index.values))
 
     slew_start = slew_start.reset_index().groupby("scriptSalIndex").agg({"time": "first"}).reset_index()
     slew_end = slew_end.reset_index().groupby("scriptSalIndex").agg({"time": "last"}).reset_index()

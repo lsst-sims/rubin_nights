@@ -23,7 +23,7 @@ def apply_enum(x: pd.Series, column: str, enumvals: Enum) -> str:
     return enumvals(x[column]).name
 
 
-def make_time(x, column):
+def make_datetime(x, column):
     return Time(x[column], format="isot", scale="tai").utc.datetime
 
 
@@ -752,9 +752,9 @@ def get_narrative_and_errors(
         messages["salIndex"] = SALINDEX_EXTRAS["narrative_log"]
         messages["error_code"] = 0
         messages["finalStatus"] = "Log"
-        messages["timestampProcessStart"] = messages.apply(make_time, args=["date_begin"], axis=1)
-        messages["timestampRunStart"] = messages.apply(make_time, args=["date_added"], axis=1)
-        messages["timestampProcessEnd"] = messages.apply(make_time, args=["date_end"], axis=1)
+        messages["timestampProcessStart"] = messages.apply(make_datetime, args=["date_begin"], axis=1)
+        messages["timestampRunStart"] = messages.apply(make_datetime, args=["date_added"], axis=1)
+        messages["timestampProcessEnd"] = messages.apply(make_datetime, args=["date_end"], axis=1)
     logger.info(f"Found {len(messages)} messages in the narrative log")
     # Get error codes
     errs = get_error_codes(t_start, t_end, efd_client)
