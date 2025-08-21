@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 from astropy.time import Time, TimeDelta
 
+from .dayobs_utils import day_obs_to_time
+
 __all__ = ["NightReportClient", "NarrativeLogClient", "ExposureLogClient"]
 
 
@@ -113,39 +115,48 @@ class NightReportClient(LoggingServiceClient):
         super().__init__(url=url, auth=auth, results_as_dataframe=False)
 
     def query_night_report(
-        self, day_obs: str, telescope: Literal["AuxTel", "Simonyi"] = "Simonyi", return_html: bool = True
+        self,
+        day_obs: str | int,
+        telescope: Literal["AuxTel", "Simonyi"] | None = None,
+        return_html: bool = True,
     ) -> (list[dict], str):
         """Fetch the night report logs.
 
         Parameters
         ----------
         day_obs
-            The day_obs of the night report. Format YYYY-MM-DD.
+            The day_obs of the night report.
+            Format YYYY-MM-DD (str) or YYYYMMDD (int).
         telescope
-            Fetch the night report logs for this telescope (AuxTel or Simonyi).
+            Format the night report logs for this telescope.
+            Options: AuxTel, Simonyi or None (None will return both).
+            The night_report now returns both telescope's summary reports.
         return_html
-            Send back an HTML formatted version of the first night report log.
+            Send back an HTML formatted version of the first night report log,
+            optionally for a given telescope only.
 
         Returns
         -------
         night_reports : `list` {`dict`}
-            The night report logs for this telescope, which are a list
+            The night report logs, which are a list
             (often a single-element list, but can be multiple during the night)
             of dictionary key:value pairs describing the night report.
+        html : `str` (optional)
+            If `return_html` is True, also return an HTML formatted version
+            of the night report, potentially for a given telescope only.
         """
-        # convert day_obs YYYY-MM-DD into int for log request
-        this_dayobs = day_obs.replace("-", "")
-        next_dayobs = (Time(day_obs, format="iso") + TimeDelta(1, format="jd")).iso[0:10].replace("-", "")
+        if isinstance(day_obs, str):
+            try:
+                int(day_obs)
+            except ValueError:
+                day_obs = int(day_obs.replace("-", ""))
 
-        if telescope.lower().startswith("aux"):
-            tel_nr = "AuxTel"
-        else:
-            tel_nr = "Simonyi"
+        next_day_obs = day_obs_to_time(day_obs) + TimeDelta(1, format="jd")
+        next_day_obs = next_day_obs.isot.split("T")[0].replace("-", "")
 
         params = {
-            "telescopes": tel_nr,
-            "min_day_obs": this_dayobs,
-            "max_day_obs": next_dayobs,
+            "min_day_obs": day_obs,
+            "max_day_obs": next_day_obs,
             "is_valid": "true",
         }
 
@@ -154,15 +165,26 @@ class NightReportClient(LoggingServiceClient):
         if len(night_reports) == 0:
             logger.warning(f"No night report available for {day_obs}")
 
+        if telescope.lower().startswith("aux"):
+            tel_nr = "AuxTel"
+        elif telescope.lower().startswith("main"):
+            tel_nr = "Simonyi"
+        elif telescope.lower().startswith("simonyi"):
+            tel_nr = "Simonyi"
+        else:
+            tel_nr = None
+
         if return_html:
-            html = self.format_night_report(night_reports)
+            html = self.format_night_report(night_reports, telescope=tel_nr)
         else:
             html = ""
 
         return night_reports, html
 
     @staticmethod
-    def format_night_report(night_reports: list[dict]) -> str:
+    def format_night_report(
+        night_reports: list[dict], telescope: Literal["AuxTel", "Simonyi"] | None = None
+    ) -> str:
         if isinstance(night_reports, list):
             log = night_reports[0]
         else:
@@ -186,6 +208,20 @@ class NightReportClient(LoggingServiceClient):
         html += "<p> <strong>Summary:</strong><br>"
         summary = re.sub(r"[\n]{2,}", "\n", log["summary"]).replace("\n", "<br>")
         html += f"{summary}"
+        if telescope is None:
+            extra_summary_keys = ["maintel_summary", "auxtel_summary"]
+        else:
+            if telescope.lower() == "simonyi":
+                extra_summary_keys = ["maintel_summary"]
+            elif telescope.lower() == "auxtel":
+                extra_summary_keys = ["auxtel_summary"]
+            else:
+                extra_summary_keys = ["maintel_summary", "auxtel_summary"]
+        # Add summary for relevant telescope
+        for key in extra_summary_keys:
+            html += f"<p> <strong> {key.replace('_', ' ')}: </strong><br>"
+            summary = re.sub(r"[\n]{2,}", "\n", log[key]).replace("\n", "<br>")
+            html += f"{summary}"
         if "telescope_status" in log:
             html += "<p> <strong>Status:</strong><br>"
             html += f"{log['telescope_status'].replace('\n', '<br>')}"
