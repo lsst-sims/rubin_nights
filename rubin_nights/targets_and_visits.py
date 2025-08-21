@@ -48,9 +48,8 @@ def targets_and_visits(
     # Fetch the targets
     topic = "lsst.sal.Scheduler.logevent_target"
     targets = endpoints["efd"].select_time_series(topic, "*", t_start, t_end, index=queue_index)
-    targets = targets.query("snapshotUri != ''")
-    # Make total requested exposure time for target if >1 numexp
-    cols = [c for c in targets if "exposureTimes" in c]
+    if len(targets) > 0:
+        targets = targets.query("snapshotUri != ''")
     logger.debug(f"{len(targets)} targets events")
 
     # Fetch the observations
@@ -78,16 +77,17 @@ def targets_and_visits(
     fields = ["scriptSalIndex", "groupId", "position0", "position1", "cameraAngle"]
     nextvisits = endpoints["efd"].select_time_series(topic, fields, t_start, t_end, index=queue_index)
     logger.debug(f"{len(nextvisits)} next visit events")
-    # Multiple next visit events can be issued for the same target, so
-    # group next visit events on script salindex if the target is the same.
-    # Only the last groupId will be the acquired exposure.
-    nextvisits = (
-        nextvisits.reset_index()
-        .groupby(["scriptSalIndex", "position0", "position1", "cameraAngle"])
-        .last()
-        .reset_index()
-    )
-    nextvisits = nextvisits.set_index("time")
+    if len(nextvisits) > 0:
+        # Multiple next visit events can be issued for the same target, so
+        # group next visit events on script salindex if the target is the same.
+        # Only the last groupId will be the acquired exposure.
+        nextvisits = (
+            nextvisits.reset_index()
+            .groupby(["scriptSalIndex", "position0", "position1", "cameraAngle"])
+            .last()
+            .reset_index()
+        )
+        nextvisits = nextvisits.set_index("time")
     logger.debug(f"{len(nextvisits)} next visit events for unique targets")
 
     # Fetch the visits from the ConsDB
@@ -98,6 +98,9 @@ def targets_and_visits(
     visits = endpoints["consdb"].get_visits(instrument, t_start, t_end, augment=True)
     logger.debug(f"{len(visits)} visits")
 
+    if len(targets) == 0:
+        return None, None, None, None, visits
+        logger.info(f"Found 0 targets; returning visits")
     # In theory, targets and observations could be merged directly on targetId.
     # However, targetId is not unique across Scheduler re-enable times.
     # This can be due to resetting unused targetIds OR it could be due
