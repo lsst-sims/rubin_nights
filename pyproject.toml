@@ -41,7 +41,7 @@ rubin = [
 ]
 test = [
      "pytest",
-     "black>=25",
+     "black",
      "ruff",
      "isort",
      "pytest-cov",
@@ -66,6 +66,7 @@ ignore_missing_imports = "True"
 [tool.black]
 line-length = 110
 target-version = ["py312"]
+required-version = 25
 
 [tool.isort]
 profile = "black"
