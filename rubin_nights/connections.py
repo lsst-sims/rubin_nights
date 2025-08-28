@@ -62,7 +62,11 @@ def get_access_token(tokenfile: str | None = None) -> str:
     return token
 
 
-def get_clients(tokenfile: str | None = None, site: str | None = None) -> dict:
+def get_clients(
+    tokenfile: str | None = None,
+    site: str | None = None,
+    auth_token: str | None = None,
+) -> dict:
     """Return site-specific client connections.
 
     Parameters
@@ -72,11 +76,15 @@ def get_clients(tokenfile: str | None = None, site: str | None = None) -> dict:
     site
         Override site location to a preferred site.
         Most likely to be used to specify `usdf-dev` vs `usdf`.
+    auth_token
+        The bare authentication token string.
+        If not None, this will override any tokenfile argument.
+        Useful in services running behind Gafaelfawr authentication.
 
     Returns
     -------
     endpoints : `dict`
-        Dictionary with `efd`, `obsenv`,
+        Dictionary with `efd`, `obsenv`, `sasquatch`,
         `narrative_log`, `exposure_log`, `night_log`, and `consdb`
         connection information.
 
@@ -87,11 +95,15 @@ def get_clients(tokenfile: str | None = None, site: str | None = None) -> dict:
     For users outside the RSP, a token can be created as described in
     https://rsp.lsst.io/v/usdfprod/guides/auth/creating-user-tokens.html
     """
-    # Set up authentication
-    token = get_access_token(tokenfile)
-    auth = ("user", token)
     # For more information on rubin tokens see DMTN-234.
     # For information on scopes, see DMTN-235.
+    if auth_token is not None:
+        # Override and use provided token as-is.
+        auth = ("user", auth_token)
+    else:
+        # Set up authentication
+        token = get_access_token(tokenfile)
+        auth = ("user", token)
 
     api_endpoints = {
         "usdf": "https://usdf-rsp.slac.stanford.edu",
