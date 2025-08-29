@@ -105,7 +105,7 @@ def get_scheduler_configs(
     topic = "lsst.obsenv.summary"
     fields = ["summit_extras", "summit_utils", "ts_standardscripts", "ts_externalscripts", "ts_config_ocs"]
     obsenv_start = obsenv_client.select_top_n(topic, fields, num=1, time_cut=Time(conf.index[0]))
-    obsenv = obsenv_client.select_time_series(topic, fields, t_start, t_end)
+    obsenv = obsenv_client.select_time_series(topic, fields, Time(conf.index[0]), t_end)
     obsenv = pd.concat([obsenv_start, obsenv])
     if len(obsenv) == 0:
         logger.warning("Could not find obsenv values.")
