@@ -100,6 +100,7 @@ def get_clients(
     if auth_token is not None:
         # Override and use provided token as-is.
         auth = ("user", auth_token)
+        token = auth_token
     else:
         # Set up authentication
         token = get_access_token(tokenfile)
