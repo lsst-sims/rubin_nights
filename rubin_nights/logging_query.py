@@ -39,7 +39,7 @@ class LoggingServiceClient:
         timeout = httpx.Timeout(120, connect=30)
         self.httpx_client = httpx.Client(timeout=timeout, auth=self.auth)
 
-    def _get_config(self):
+    def _get_config(self) -> None:
         # I thought this would work as a wakeup but it does not.
         # But it does gather the configuration at least.
         url = "".join(["/".join(self.url.split("/")[:-1]) + "/configuration"])
@@ -56,7 +56,7 @@ class LoggingServiceClient:
                 )
         self.config = response.text
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self.url
 
     def query(self, params: dict) -> list[dict] | pd.DataFrame:
@@ -110,7 +110,7 @@ class NightReportClient(LoggingServiceClient):
         The username and password for authentication.
     """
 
-    def __init__(self, api_base: str, auth: tuple):
+    def __init__(self, api_base: str, auth: tuple) -> None:
         url = api_base + "/nightreport/reports"
         super().__init__(url=url, auth=auth, results_as_dataframe=False)
 
@@ -119,7 +119,7 @@ class NightReportClient(LoggingServiceClient):
         day_obs: str | int,
         telescope: Literal["AuxTel", "Simonyi"] | None = None,
         return_html: bool = True,
-    ) -> (list[dict], str):
+    ) -> tuple[list[dict], str]:
         """Fetch the night report logs.
 
         Parameters
@@ -165,14 +165,15 @@ class NightReportClient(LoggingServiceClient):
         if len(night_reports) == 0:
             logger.warning(f"No night report available for {day_obs}")
 
-        if telescope.lower().startswith("aux"):
-            tel_nr = "AuxTel"
-        elif telescope.lower().startswith("main"):
-            tel_nr = "Simonyi"
-        elif telescope.lower().startswith("simonyi"):
-            tel_nr = "Simonyi"
-        else:
-            tel_nr = None
+        if telescope is not None:
+            if telescope.lower().startswith("aux"):
+                tel_nr = "AuxTel"
+            elif telescope.lower().startswith("main"):
+                tel_nr = "Simonyi"
+            elif telescope.lower().startswith("simonyi"):
+                tel_nr = "Simonyi"
+            else:
+                tel_nr = None
 
         if return_html:
             html = self.format_night_report(night_reports, telescope=tel_nr)
@@ -182,9 +183,7 @@ class NightReportClient(LoggingServiceClient):
         return night_reports, html
 
     @staticmethod
-    def format_night_report(
-        night_reports: list[dict], telescope: Literal["AuxTel", "Simonyi"] | None = None
-    ) -> str:
+    def format_night_report(night_reports: list[dict], telescope: str | None = None) -> str:
         if isinstance(night_reports, list):
             log = night_reports[0]
         else:
@@ -240,7 +239,7 @@ class NarrativeLogClient(LoggingServiceClient):
         The username and password for authentication.
     """
 
-    def __init__(self, api_base: str, auth: tuple):
+    def __init__(self, api_base: str, auth: tuple) -> None:
         url = api_base + "/narrativelog/messages"
         super().__init__(url=url, auth=auth, results_as_dataframe=True)
 
@@ -283,27 +282,27 @@ class NarrativeLogClient(LoggingServiceClient):
         if user_params is not None:
             params.update(user_params)
 
-        messages = self.query(params=params)
+        messages: pd.DataFrame = self.query(params=params)
         if len(messages) == log_limit:
             logger.warning(f"Narrative log messages hit log_limit ({log_limit})")
         if len(messages) > 0:
             # Strip out excessive \r\n values
-            def strip_rns(x):
+            def strip_rns(x: pd.Series) -> str:
                 return x.message_text.replace("\r\n", "\n").replace("\n\n", "\n").rstrip("\n")
 
             # Convert string time to datetime
-            def make_time(x, column):
+            def make_time(x: pd.Series, column: str) -> str:
                 return Time(x[column], format="isot", scale="tai").utc.datetime
 
             # join log components for compactness
-            def clarify_log(x, column):
+            def simplify_log(x: pd.Series, column: str) -> str:
                 if column == "components_json":
                     # Then x[column] will be a dictionary
                     if x[column] is None or x[column] == {}:
                         component = "Log"
                     else:
 
-                        def findnames(testvalue):
+                        def findnames(testvalue: str | list | dict) -> str:
                             if isinstance(testvalue, str):
                                 return testvalue
                             else:
@@ -334,7 +333,7 @@ class NarrativeLogClient(LoggingServiceClient):
                 key = "components"
             else:
                 key = "components_json"
-            messages["component"] = messages.apply(clarify_log, args=(key,), axis=1)
+            messages["component"] = messages.apply(simplify_log, args=(key,), axis=1)
         return messages
 
 

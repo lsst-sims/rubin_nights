@@ -99,8 +99,9 @@ def targets_and_visits(
     logger.debug(f"{len(visits)} visits")
 
     if len(targets) == 0:
-        return None, None, None, None, visits
         logger.info("Found 0 targets; returning visits")
+        return pd.DataFrame([]), [], pd.DataFrame([]), pd.DataFrame([]), visits
+
     # In theory, targets and observations could be merged directly on targetId.
     # However, targetId is not unique across Scheduler re-enable times.
     # This can be due to resetting unused targetIds OR it could be due

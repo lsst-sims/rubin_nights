@@ -31,9 +31,8 @@ def time_to_day_obs(time: Time) -> str:
 
 def day_obs_int_to_str(day_obs: int) -> str:
     """Day_obs integer YYYYMMDD transformed to string YYYY-MM-DD."""
-    day_obs = str(day_obs)
-    day_obs = f"{day_obs[0:4]}-{day_obs[4:6]}-{day_obs[6:]}"
-    return day_obs
+    day_obs_str = str(day_obs)
+    return f"{day_obs_str[0:4]}-{day_obs_str[4:6]}-{day_obs_str[6:]}"
 
 
 def day_obs_str_to_int(day_obs: str) -> int:
@@ -44,8 +43,8 @@ def day_obs_str_to_int(day_obs: str) -> int:
 def day_obs_to_time(day_obs: int | str) -> Time:
     """Day_obs int or string to astropy Time."""
     try:
-        int(day_obs)
-        return Time(f"{day_obs_int_to_str(day_obs)}T12:00:00", format="isot", scale="tai")
+        day_obs_int = int(day_obs)
+        return Time(f"{day_obs_int_to_str(day_obs_int)}T12:00:00", format="isot", scale="tai")
     except ValueError:
         return Time(f"{day_obs}T12:00:00", format="isot", scale="tai")
 
@@ -67,10 +66,12 @@ def day_obs_sunset_sunrise(day_obs: str | int, sun_alt: float = -12) -> tuple[Ti
         Science observations are generally expected from -12 degree twilight.
     """
     if isinstance(day_obs, int):
-        day_obs = str(day_obs)
-    if "-" not in day_obs:
-        day_obs = day_obs_int_to_str(day_obs)
-    day_obs_time = Time(f"{day_obs}T12:00:00", format="isot", scale="tai")
+        day_obs_str = str(day_obs)
+    else:
+        day_obs_str = day_obs
+    if "-" not in day_obs_str:
+        day_obs_str = day_obs_int_to_str(int(day_obs))
+    day_obs_time = Time(f"{day_obs_str}T12:00:00", format="isot", scale="tai")
     try:
         observer = Observer.at_site("Rubin")
     except UnknownSiteException:

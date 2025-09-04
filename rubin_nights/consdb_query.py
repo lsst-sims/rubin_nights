@@ -11,6 +11,7 @@ from astropy.time import Time
 
 try:
     import sqlalchemy
+    from psycopg import ProgrammingError
 
     HAS_SQLALCHEMY = True
 except ModuleNotFoundError:
@@ -25,24 +26,11 @@ __all__ = ["ConsDbTap", "ConsDbFastAPI", "ConsDbSql"]
 
 class ConsDb:
 
-    def query(self, query) -> pd.DataFrame:
+    def query(self, query: str) -> pd.DataFrame:
         """The simple query method is implemented in the child classes,
         according to the specific service/interface used to access the ConsDB.
         """
         raise NotImplementedError
-
-    def augment_visits(
-        self,
-        visits: pd.DataFrame,
-        instrument: str = "lsstcam",
-        predicted_zeropoint_offsets: dict | None = None,
-    ) -> pd.DataFrame:
-        """Shim for backwards compatibility."""
-        logger.warning(
-            "ConsDb.augment_visits is deprecated; please use "
-            "rubin_nights.augment_visits.augment_visits instead"
-        )
-        return augment_visits(visits, instrument, predicted_zeropoint_offsets)
 
     def get_visits(
         self,
@@ -92,9 +80,9 @@ class ConsDb:
             constraint.append(f" obs_start_mjd <= {t_end.mjd} ")
         if visit_constraint is not None:
             constraint.append(f" ({visit_constraint}) ")
-        constraint = "and".join(constraint)
-        if len(constraint) > 0:
-            query = query + f" where {constraint}"
+        constraint_str = "and".join(constraint)
+        if len(constraint_str) > 0:
+            query = query + f" where {constraint_str}"
         logger.debug(f"Query executed: {query}")
         visits = self.query(query)
 
@@ -174,7 +162,7 @@ class ConsDbTap(ConsDb):
     def __repr__(self) -> str:
         return self.tap.baseurl
 
-    def query(self, query) -> pd.DataFrame:
+    def query(self, query: str) -> pd.DataFrame:
         """Execute TAP ConsDB query.
 
         Parameters
@@ -211,7 +199,7 @@ class ConsDbFastAPI(ConsDb):
     # From within the USDF RSP, you could also use
     # http://consdb-pq.consdb:8080/ for the ConsDB api_base.
     # This may be slightly faster without F5 load balancer packet checking.
-    def __init__(self, api_base: str, auth: tuple, query_timeout: float = 10 * 60):
+    def __init__(self, api_base: str, auth: tuple, query_timeout: float = 10 * 60) -> None:
         self.base_url = api_base + "/consdb"
         timeout = httpx.Timeout(timeout=query_timeout, connect=60.0)
         transport = httpx.HTTPTransport(retries=2)
@@ -219,13 +207,13 @@ class ConsDbFastAPI(ConsDb):
             base_url=self.base_url, timeout=timeout, transport=transport, auth=auth
         )
 
-    def __del__(self):
+    def __del__(self) -> None:
         self.httpx_client.close()
 
     def __repr__(self) -> str:
         return self.base_url
 
-    def query(self, query) -> pd.DataFrame:
+    def query(self, query: str) -> pd.DataFrame:
         """Execute FastAPI ConsDB query.
 
         Parameters
@@ -270,20 +258,22 @@ class ConsDbFastAPI(ConsDb):
                 f"Error at UTC time {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}"
             )
         if response.status_code != 200:
-            messages = []
+            messages = dict()
         else:
             messages = response.json()
         if len(messages) > 0:
-            messages = pd.DataFrame(messages["data"], columns=messages["columns"])
+            results = pd.DataFrame(messages["data"], columns=messages["columns"])
             # Check for duplicate columns.
-            indices = np.where(pd.Series(messages.columns.duplicated()))[0]
-            newcols = messages.columns.to_list()
+            indices = np.where(pd.Series(results.columns.duplicated()))[0]
+            newcols = results.columns.to_list()
             for i in indices:
                 newcols[i] = newcols[i] + "_duplicate"
             # Have to change only some instances of the duplicates
-            messages.columns = newcols
-            messages.drop(messages.columns[indices], axis=1, inplace=True)
-        return messages
+            results.columns = newcols
+            results.drop(results.columns[indices], axis=1, inplace=True)
+        else:
+            results = pd.DataFrame([])
+        return results
 
 
 class ConsDbSql(ConsDb):
@@ -328,14 +318,14 @@ class ConsDbSql(ConsDb):
         self.engine = sqlalchemy.create_engine(self.conn_str)
         self.conn = self.engine.connect()
 
-    def __del__(self):
+    def __del__(self) -> None:
         self.conn.close()
         self.engine.dispose()
 
     def __repr__(self) -> str:
         return self.conn_str
 
-    def query(self, query) -> pd.DataFrame:
+    def query(self, query: str) -> pd.DataFrame:
         """Execute a SQL query
 
         Parameters
@@ -349,7 +339,7 @@ class ConsDbSql(ConsDb):
         """
         try:
             result = pd.read_sql(query, self.conn)
-        except Exception as e:
+        except ProgrammingError as e:
             self.conn.rollback()
-            logger.error(e.message)
+            logger.error(e)
         return result

@@ -1,6 +1,7 @@
 import logging
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 from astropy.time import Time
 
@@ -81,6 +82,7 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
                 visits.drop(labels=n, axis=1, inplace=True)
 
         # replace PLATESCALE with x.pixel_scale_median when available
+        pixel_scale: float | npt.NDArray
         if "pixel_scale_median" in visits.columns:
             pixel_scale = np.where(
                 np.isnan(visits.pixel_scale_median.values), PLATESCALE, visits.pixel_scale_median.values

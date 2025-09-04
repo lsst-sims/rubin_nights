@@ -32,6 +32,7 @@ def get_access_token(tokenfile: str | None = None) -> str:
     -------
     token : `str`
         Token value.
+        A zero-length token will not be valid for use.
 
     Notes
     -----
@@ -58,6 +59,7 @@ def get_access_token(tokenfile: str | None = None) -> str:
             token = os.environ.get("ACCESS_TOKEN", None)
     # Final check to issue warning.
     if token is None:
+        token = ""
         logging.warning("No RSP token found.")
     return token
 
@@ -99,12 +101,12 @@ def get_clients(
     # For information on scopes, see DMTN-235.
     if auth_token is not None:
         # Override and use provided token as-is.
-        auth = ("user", auth_token)
         token = auth_token
     else:
         # Set up authentication
         token = get_access_token(tokenfile)
-        auth = ("user", token)
+
+    auth = ("user", token)
 
     api_endpoints = {
         "usdf": "https://usdf-rsp.slac.stanford.edu",

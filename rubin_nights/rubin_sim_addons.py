@@ -1,6 +1,7 @@
 import logging
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 from astropy.time import Time
 
@@ -99,7 +100,7 @@ def add_rubin_sim_cols(
 
     visits = visits.merge(new_df, right_index=True, left_index=True)
 
-    def calc_predicted_zeropoints(x):
+    def calc_predicted_zeropoints(x: pd.Series) -> pd.Series:
         if x.exp_time == 0 or np.isnan(x.exp_time) or x.band not in ["u", "g", "r", "i", "z", "y"]:
             # Bail if zero or nan exposure time or not in bandpass dictionary.
             x.zero_point_1s = np.nan
@@ -127,6 +128,7 @@ def add_rubin_sim_cols(
         noise_instr_sq = 10
         # psf_area_median would be good to use but going from fwhm_eff
         # makes us more internally self-consistent
+        pixel_scale: float | npt.NDArray
         if "pixel_scale_median" in visits.columns:
             pixel_scale = np.where(
                 np.isnan(visits.pixel_scale_median.values), PLATESCALE, visits.pixel_scale_median.values

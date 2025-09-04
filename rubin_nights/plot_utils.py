@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 
 import numpy as np
@@ -6,10 +7,12 @@ from matplotlib.axes import Axes
 from matplotlib.cm import ScalarMappable
 from matplotlib.collections import PatchCollection
 from matplotlib.colors import Colormap, Normalize
-from matplotlib.figure import Figure
+from matplotlib.figure import Figure, SubFigure
 from matplotlib.patches import Polygon
 
 __all__ = ["PlotStyles", "detector_plot"]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -42,7 +45,7 @@ def detector_plot(
     vmax: float | None = None,
     cmap: Colormap | str = "viridis",
     ax: Axes | None = None,
-):
+) -> tuple[Figure | SubFigure | None, Axes]:
     """Plot the values per detector arranged across the focal plane.
 
     Parameters
@@ -63,12 +66,23 @@ def detector_plot(
         Matplotlib colormap.
     ax
         Matplotlib axes to use for the plot.
+
+    Returns
+    -------
+    fig, ax : `matplotlib.Figure`, `matplotlib.axes.Axes`
+        Matplotlib figure and axes for the plot.
     """
+    fig: Figure | SubFigure
     if ax is None:
         fig = Figure(figsize=(12, 12))
         ax = fig.add_subplot(111)
     else:
-        fig = ax.get_figure()
+        tmpfig = ax.get_figure()
+        if tmpfig is None:
+            fig = Figure(figsize=(12, 12))
+            ax = fig.add_subplot(111)
+        else:
+            fig = tmpfig
 
     if vmin is None:
         vmin = np.nanmin(detector_values[key].values)
@@ -128,5 +142,6 @@ def detector_plot(
     if title:
         fig.suptitle(title, fontsize="x-large")
 
-    fig.tight_layout()
+    if isinstance(fig, Figure):
+        fig.tight_layout()
     return fig, ax

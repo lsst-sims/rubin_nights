@@ -3,6 +3,7 @@ import logging
 import os
 import pickle
 import warnings
+from typing import Any
 
 import numpy as np
 
@@ -37,7 +38,7 @@ def hp_moll(
     hp.graticule()
 
 
-def get_scheduler_snapshot(uri: str, at_usdf: bool = True):
+def get_scheduler_snapshot(uri: str, at_usdf: bool = True) -> tuple[Any, Any]:
     if at_usdf:
         uri = usdf_lfa(uri, bucket="s3://lfa@")
         os.environ["LSST_DISABLE_BUCKET_VALIDATION"] = "1"

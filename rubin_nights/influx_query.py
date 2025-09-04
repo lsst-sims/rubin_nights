@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 __all__ = ["InfluxQueryClient", "day_obs_from_index"]
 
 
-def day_obs_from_index(x):
+def day_obs_from_index(x: pd.Series) -> int:
     """Use with pandas apply(efd_values, axis=1) to get dayobs."""
     dayobs_time = Time(np.floor(Time(x.name, scale="utc").tai.mjd - 0.5), format="mjd", scale="tai")
     return int(dayobs_time.isot.split("T")[0].replace("-", ""))
@@ -49,7 +49,7 @@ class InfluxQueryClient:
         timeout = httpx.Timeout(query_timeout, connect=10.0)
         self.httpx_client = httpx.Client(base_url=self.url, timeout=timeout, auth=auth)
 
-    def _fetch_credentials(self):
+    def _fetch_credentials(self) -> tuple[str, tuple[str, bytes]]:
         creds_service = f"https://roundtable.lsst.codes/segwarides/creds/{self.site}"
         try:
             efd_creds = httpx.get(creds_service)
@@ -62,7 +62,7 @@ class InfluxQueryClient:
         url = "https://" + efd_creds["host"] + efd_creds["path"].rstrip("/")
         return url, auth
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"{self.db_name} at {self.url}"
 
     def query(self, query: str) -> dict | pd.DataFrame:
@@ -144,7 +144,7 @@ class InfluxQueryClient:
     @staticmethod
     def build_influxdb_query(
         measurement: str,
-        fields: list[str] | None = None,
+        fields: list[str] | str = "*",
         time_range: tuple[Time, Time] | None = None,
         filters: list[tuple[str, str]] | None = None,
     ) -> str:
@@ -156,7 +156,7 @@ class InfluxQueryClient:
             The name of the topic / measurement.
         fields
             List of fields to return from the topic.
-            Default None uses `*` (all fields).
+            Default `*` returns all fields.
         time_range
             The time window (in astropy.time.Time) to query.
         filters
@@ -191,7 +191,7 @@ class InfluxQueryClient:
     @staticmethod
     def build_influxdb_top_n_query(
         measurement: str,
-        fields: list[str] | None = None,
+        fields: list[str] | str = "*",
         num: int = 10,
         time_cut: Time | None = None,
         filters: list[tuple[str, str]] | None = None,
@@ -204,7 +204,7 @@ class InfluxQueryClient:
             The name of the topic / measurement.
         fields
             List of fields to return from the topic.
-            Default None uses `*` (all fields).
+            Default `*` will return all fields.
         num
             The maximum number of records to return.
         time_cut
@@ -249,7 +249,7 @@ class InfluxQueryClient:
         index: int | None = None,
     ) -> pd.DataFrame:
         if index:
-            filters = [("salIndex", index)]
+            filters = [("salIndex", str(index))]
         else:
             filters = None
         query = self.build_influxdb_query(
@@ -257,9 +257,16 @@ class InfluxQueryClient:
         )
         return self.query(query)
 
-    def select_top_n(self, topic_name, fields, num, time_cut=None, index=None):
+    def select_top_n(
+        self,
+        topic_name: str,
+        fields: str | list[str],
+        num: int,
+        time_cut: Time = None,
+        index: int | None = None,
+    ) -> pd.DataFrame:
         if index:
-            filters = [("salIndex", index)]
+            filters = [("salIndex", str(index))]
         else:
             filters = None
         query = self.build_influxdb_top_n_query(

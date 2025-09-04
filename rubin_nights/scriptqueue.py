@@ -1,5 +1,5 @@
+import enum
 import logging
-from enum import Enum
 
 import astropy.units as u
 import numpy as np
@@ -19,11 +19,11 @@ TIMESTAMP_ZERO = Time(0, format="unix_tai").utc.datetime
 SALINDEX_EXTRAS = {"narrative_log": 0, "errors": 4, "simonyi_exp": 5, "at_exp": 6, "autolog": 10}
 
 
-def apply_enum(x: pd.Series, column: str, enumvals: Enum) -> str:
+def apply_enum(x: pd.Series, column: str, enumvals: ScriptState | CSCState) -> str:
     return enumvals(x[column]).name
 
 
-def make_datetime(x, column):
+def make_datetime(x: pd.Series, column: str) -> str:
     return Time(x[column], format="isot", scale="tai").utc.datetime
 
 
@@ -171,13 +171,13 @@ def get_scheduler_configs(
     deps["classname"] = "Scheduler dependencies"
 
     # FBS version information isn't propagated - use seeingModel
-    def fbs_version(x):
+    def fbs_version(x: pd.Series) -> str:
         return f"{x.scheduler} {x.seeingModel}"
 
     deps["description"] = deps.apply(fbs_version, axis=1)
     models = [c for c in deps.columns if "observatory" in c or "Model" in c]
 
-    def build_compact_config_string(x, models):
+    def build_compact_config_string(x: pd.Series, models: list[str]) -> str:
         dep_string = ""
         for m in models:
             dep_string += f"{m}: {x[m]}, "
@@ -199,7 +199,7 @@ def get_scheduler_configs(
             ts_config_ocs_in_place.append(prev_obsenv.iloc[-1]["ts_config_ocs"])
     conf["ts_config_ocs"] = ts_config_ocs_in_place
 
-    def build_link_to_config(x):
+    def build_link_to_config(x: pd.Series) -> str:
         desc_string = x.configurations.split(",")[-1] + "<br> ts_config_ocs " + x.ts_config_ocs
         link = f"https://github.com/lsst-ts/ts_config_ocs/tree/{x.ts_config_ocs}/Scheduler/feature_scheduler"
         url = f'<a href="{link}" target="_blank" rel="noreferrer noopener">{desc_string}</a>'
@@ -514,7 +514,7 @@ def get_script_status(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
     # 'finalStatus', 'timestampProcessStart', 'timestampConfigureEnd',
     # 'timestampRunStart', 'timestampProcessEnd']
 
-    def _find_best_script_time(x):
+    def _find_best_script_time(x: pd.Series) -> str:
         # Try run start first
         best_time = x.timestampRunStart
         if best_time == TIMESTAMP_ZERO:
@@ -563,7 +563,7 @@ def get_error_codes(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -
     if len(errs) > 0:
         errs = pd.concat(errs).sort_index()
 
-        def strip_csc(x):
+        def strip_csc(x: pd.Series) -> str:
             return (
                 x.topic.replace("lsst.sal", "").replace("logevent_errorCode", "").replace(".", "")
                 + "CSC error"
@@ -620,18 +620,18 @@ def get_scriptqueue_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQue
     # right after FAILED scripts, and link with script_salIndex
     query = 'select message, traceback, salIndex from "lsst.sal.Script.logevent_logMessage"'
     query += f"where time >= '{t_start.isot}Z' and time <= '{t_end.isot}Z' and traceback != ''"
-    traceback_messages = efd_client.query(query)
+    traceback_messages: pd.DataFrame = efd_client.query(query)
     # Then check if there are any *traceback* messages to query.
     if len(traceback_messages) > 0:
         traceback_messages.rename({"salIndex": "script_salIndex"}, axis=1, inplace=True)
 
         # Add salIndex of queue where the script was run
-        def queue_from_script_salindex(x):
+        def queue_from_script_salindex(x: pd.Series) -> int:
             return int(str(x.script_salIndex)[0])
 
         traceback_messages["salIndex"] = traceback_messages.apply(queue_from_script_salindex, axis=1)
 
-        def make_config_message(x):
+        def make_config_message(x: pd.Series) -> str:
             return f"Traceback for {x.script_salIndex}"
 
         traceback_messages["config"] = traceback_messages.apply(make_config_message, axis=1)
@@ -670,7 +670,7 @@ def get_all_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQueryClient
         csc = topic.split(".")[-2]
         query = f'select * from "{topic}"'
         query += f"where time >= '{t_start.isot}Z' and time <= '{t_end.isot}Z' and traceback != ''"
-        traceback_messages = efd_client.query(query)
+        traceback_messages: pd.DataFrame = efd_client.query(query)
         # Then check if there are any *traceback* messages to query.
         if len(traceback_messages) > 0:
 
@@ -683,12 +683,12 @@ def get_all_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQueryClient
             traceback_messages.rename({"salIndex": "script_salIndex"}, axis=1, inplace=True)
 
             # Add salIndex of queue where the script was run
-            def queue_from_script_salindex(x):
+            def queue_from_script_salindex(x: pd.Series) -> int:
                 return int(str(x.script_salIndex)[0])
 
             traceback_messages["salIndex"] = traceback_messages.apply(queue_from_script_salindex, axis=1)
 
-            def make_config_message(x, csc):
+            def make_config_message(x: pd.Series, csc: str) -> str:
                 if (x.script_salIndex) > 3:
                     message = f"{csc} traceback for {x.script_salIndex}"
                 else:
@@ -812,7 +812,7 @@ def get_exposure_info(
         image_acquisition_mt["script_salIndex"] = 0
         image_acquisition_mt["finalStatus"] = "Image Acquired"
 
-        def make_config_col_for_image(x):
+        def make_config_col_for_image(x: pd.Series) -> str:
             return f"exp {x.exposureTime} // dark {x.darkTime} // open {x.measuredShutterOpenTime} "
 
         image_acquisition_mt["config"] = image_acquisition_mt.apply(make_config_col_for_image, axis=1)
@@ -841,7 +841,7 @@ def get_exposure_info(
         image_acquisition_cc["script_salIndex"] = 0
         image_acquisition_cc["finalStatus"] = "Image Acquired"
 
-        def make_config_col_for_image(x):
+        def make_config_col_for_image(x: pd.Series) -> str:
             return f"exp {x.exposureTime} // dark {x.darkTime} // open {x.measuredShutterOpenTime} "
 
         image_acquisition_cc["config"] = image_acquisition_cc.apply(make_config_col_for_image, axis=1)
@@ -872,7 +872,7 @@ def get_exposure_info(
         image_acquisition_at["script_salIndex"] = 0
         image_acquisition_at["finalStatus"] = "Image Acquired"
 
-        def make_config_col_for_image(x):
+        def make_config_col_for_image(x: pd.Series) -> str:
             return f"exp {x.exposureTime} // dark {x.darkTime} // open {x.measuredShutterOpenTime} "
 
         image_acquisition_at["config"] = image_acquisition_at.apply(make_config_col_for_image, axis=1)
@@ -1018,7 +1018,7 @@ def get_consolidated_messages(t_start: Time, t_end: Time, endpoints: dict) -> tu
     fbs_resume_times = efd_and_messages.query('name == "MTSchedulerResume"')
     scheduler_configs = efd_and_messages.query('name == "Scheduler configuration"')
 
-    def find_fbs_yaml(row, scheduler_configs):
+    def find_fbs_yaml(row: pd.Series, scheduler_configs: pd.DataFrame) -> str:
         earlier_configs = scheduler_configs.query("index < @row.name")
         best_config = earlier_configs.iloc[-1].config
         return best_config.split(",")[-1]

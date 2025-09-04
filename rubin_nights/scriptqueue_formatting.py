@@ -10,7 +10,7 @@ __all__ = ["get_name_and_color_from_salindex", "format_html"]
 
 
 # Define name and colours from salIndex
-def get_name_and_color_from_salindex(sal_index, unknown_color="#f9f9f9"):
+def get_name_and_color_from_salindex(sal_index: int, unknown_color: str="#f9f9f9") -> tuple[str, str]:
     # Colors from https://medialab.github.io/iwanthue/
     return {
         SALINDEX_EXTRAS["narrative_log"]: ("Narrative log", "#cf7ddc"),
@@ -25,7 +25,7 @@ def get_name_and_color_from_salindex(sal_index, unknown_color="#f9f9f9"):
 
 
 # Custom formatter to handle YAML-like strings with dynamic background colors
-def format_config_as_yaml_with_colors(row):
+def format_config_as_yaml_with_colors(row: pd.Series) ->str:
     config_value = row["config"]
     sal_index = row["salIndex"]
     script_salindex = row["script_salIndex"]
@@ -64,7 +64,7 @@ def format_config_as_yaml_with_colors(row):
         return config_value  # Return as-is if salIndex is 0 or invalid type
 
 
-def format_description(row):
+def format_description(row: pd.Series) -> str:
     if row.description.startswith("<a href"):
         return row.description
     else:
@@ -105,7 +105,7 @@ def format_html(
         keep |= efd_and_messages.salIndex == si
     efd_and_messages = efd_and_messages[keep]
 
-    def highlight_salindex(s):
+    def highlight_salindex(s: pd.Series) -> list[str]:
         return [f"background-color: {get_name_and_color_from_salindex(s.salIndex)[1]}"] * len(s)
 
     msg = ["Color coding by "]

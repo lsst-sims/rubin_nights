@@ -44,7 +44,7 @@ def get_dome_open_close(t_start: Time, t_end: Time, efd_client: InfluxQueryClien
     )
     # this should come from lsst.sal.MTDome.logevent_shutterMotion
     # instead, once logevent_shutterMotion becomes reliable.
-    dome_shutter = efd_client.query(query)
+    dome_shutter: pd.DataFrame = efd_client.query(query)
     if len(dome_shutter) == 0:
         # Make and return an empty data frame with the expected columns
         dome_shutter = pd.DataFrame([], columns=["day_obs", "open_time", "close_time", "open_hours"])
@@ -52,7 +52,8 @@ def get_dome_open_close(t_start: Time, t_end: Time, efd_client: InfluxQueryClien
 
     # Add day_obs
     dome_shutter["day_obs"] = dome_shutter.apply(day_obs_from_index, axis=1)
-    # Find open/close times in each dayobs
+    # Find open/close times in each day_obs
+    # Fails on day_obs 20250809 -- TODO
     dome_open = []
     for day_obs in dome_shutter.day_obs.unique():
         # dome open/close events
