@@ -174,6 +174,8 @@ class NightReportClient(LoggingServiceClient):
                 tel_nr = "Simonyi"
             else:
                 tel_nr = None
+        else:
+            tel_nr = None
 
         if return_html:
             html = self.format_night_report(night_reports, telescope=tel_nr)
@@ -218,9 +220,12 @@ class NightReportClient(LoggingServiceClient):
                 extra_summary_keys = ["maintel_summary", "auxtel_summary"]
         # Add summary for relevant telescope
         for key in extra_summary_keys:
-            html += f"<p> <strong> {key.replace('_', ' ')}: </strong><br>"
-            summary = re.sub(r"[\n]{2,}", "\n", log[key]).replace("\n", "<br>")
-            html += f"{summary}"
+            if key in log.keys():
+                logvals = log[key]
+                if logvals is not None:
+                    html += f"<p> <strong> {key.replace('_', ' ')}: </strong><br>"
+                    summary = re.sub(r"[\n]{2,}", "\n", logvals).replace("\n", "<br>")
+                    html += f"{summary}"
         if "telescope_status" in log:
             html += "<p> <strong>Status:</strong><br>"
             html += f"{log['telescope_status'].replace('\n', '<br>')}"
