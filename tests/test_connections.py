@@ -18,10 +18,10 @@ class TestConnections(unittest.TestCase):
         # Use nothing
         token = connections.get_access_token()
         if os.getenv("EXTERNAL_INSTANCE_URL") is None:
-            self.assertTrue(token is None)
+            self.assertTrue(len(token) == 0)
         # This is expected to get a real token on the RSP
         else:
-            self.assertTrue(token is not None)
+            self.assertTrue(len(token) > 0)
         # Use environment variable
         current_env_val = os.getenv("ACCESS_TOKEN")
         os.environ["ACCESS_TOKEN"] = self.expected_token

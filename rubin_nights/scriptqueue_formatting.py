@@ -10,7 +10,7 @@ __all__ = ["get_name_and_color_from_salindex", "format_html"]
 
 
 # Define name and colours from salIndex
-def get_name_and_color_from_salindex(sal_index: int, unknown_color: str="#f9f9f9") -> tuple[str, str]:
+def get_name_and_color_from_salindex(sal_index: int, unknown_color: str = "#f9f9f9") -> tuple[str, str]:
     # Colors from https://medialab.github.io/iwanthue/
     return {
         SALINDEX_EXTRAS["narrative_log"]: ("Narrative log", "#cf7ddc"),
@@ -25,7 +25,7 @@ def get_name_and_color_from_salindex(sal_index: int, unknown_color: str="#f9f9f9
 
 
 # Custom formatter to handle YAML-like strings with dynamic background colors
-def format_config_as_yaml_with_colors(row: pd.Series) ->str:
+def format_config_as_yaml_with_colors(row: pd.Series) -> str:
     config_value = row["config"]
     sal_index = row["salIndex"]
     script_salindex = row["script_salIndex"]
