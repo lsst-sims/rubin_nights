@@ -24,6 +24,7 @@ __all__ = ["augment_visits", "fetch_excluded_visits", "exclude_visits"]
 def augment_visits(
     visits: pd.DataFrame,
     instrument: str = "lsstcam",
+    skip_rs_columns: bool = False,
     predicted_zeropoint_offsets: dict | None = None,
 ) -> pd.DataFrame:
     """Add additional columns to the dataframe resulting from
@@ -39,6 +40,12 @@ def augment_visits(
     instrument
         The instrument for the visits.
         Used to calculate the approproximate rotTelPos value.
+    skip_rs_columns
+        Skip calculation of any columns that require rubin_scheduler
+        or rubin_sim, even if those packages are installed.
+        This will only sort the visits in time, calculate `visit_gap`,
+        and calculate the boresight coordinates in ecliptic and galactic
+        coordinates.
     predicted_zeropoint_offsets
         Offsets to add to the predicted zeropoint values.
         If None, will pick appropriate defaults based on instrument.
@@ -129,8 +136,9 @@ def augment_visits(
     ).T
     visits = visits.merge(new_df, right_index=True, left_index=True)
 
-    visits = add_rubin_scheduler_cols(visits, instrument)
-    visits = add_rubin_sim_cols(visits, instrument, predicted_zeropoint_offsets)
+    if not skip_rs_columns:
+        visits = add_rubin_scheduler_cols(visits, instrument)
+        visits = add_rubin_sim_cols(visits, instrument, predicted_zeropoint_offsets)
 
     return visits
 
