@@ -60,13 +60,19 @@ def get_dome_open_close(t_start: Time, t_end: Time, efd_client: InfluxQueryClien
         dd = dome_shutter.query("day_obs == @day_obs")
         opening = dd.query("positionCommanded0 == 100 or positionCommanded1 == 100")
         if len(opening) > 0:
-            gaps = np.concatenate(
-                [np.array([0]), np.where((np.diff(opening.index) / pd.Timedelta(1, "s")) > 5 * 60)[0]]
+            gaps = (
+                np.concatenate(
+                    [np.array([-1]), np.where((np.diff(opening.index) / pd.Timedelta(1, "s")) > 5 * 60)[0]]
+                )
+                + 1
             )
             open_start = opening.iloc[gaps].index.values
             closing = dd.query("positionCommanded0 == 0 or positionCommanded1 == 0")
-            gaps = np.concatenate(
-                [np.array([0]), np.where((np.diff(closing.index) / pd.Timedelta(1, "s")) > 5 * 60)[0]]
+            gaps = (
+                np.concatenate(
+                    [np.array([-1]), np.where((np.diff(closing.index) / pd.Timedelta(1, "s")) > 5 * 60)[0]]
+                )
+                + 1
             )
             close_start = closing.iloc[gaps].index.values
             for os, cs in zip(open_start, close_start):
