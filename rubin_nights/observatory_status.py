@@ -32,6 +32,12 @@ def get_dome_open_close(t_start: Time, t_end: Time, efd_client: InfluxQueryClien
     dome_open_close : `pd.DataFrame`
         Dataframe containing pairs of open/close datetimes + elapsed time
         for each dome-open period in each day_obs.
+
+    Notes
+    -----
+    If the query time does not include the open or close time
+    for a particular period, the result will either be a negative
+    elapsed open dome time or no opening/closing value reported.
     """
     # Get dome open/close information
     query = (
@@ -68,16 +74,23 @@ def get_dome_open_close(t_start: Time, t_end: Time, efd_client: InfluxQueryClien
             )
             open_start = opening.iloc[gaps].index.values
             closing = dd.query("positionCommanded0 == 0 or positionCommanded1 == 0")
-            gaps = (
-                np.concatenate(
-                    [np.array([-1]), np.where((np.diff(closing.index) / pd.Timedelta(1, "s")) > 5 * 60)[0]]
+            if len(closing) > 0:
+                # This means for an in-progress night with the dome open,
+                # or if the query doesn't include the closing time,
+                # we won't record the last open/close.
+                gaps = (
+                    np.concatenate(
+                        [
+                            np.array([-1]),
+                            np.where((np.diff(closing.index) / pd.Timedelta(1, "s")) > 5 * 60)[0],
+                        ]
+                    )
+                    + 1
                 )
-                + 1
-            )
-            close_start = closing.iloc[gaps].index.values
-            for os, cs in zip(open_start, close_start):
-                open_hours = (cs - os) / pd.Timedelta(1, "s") / 60 / 60
-                dome_open.append([day_obs, os, cs, open_hours])
+                close_start = closing.iloc[gaps].index.values
+                for os, cs in zip(open_start, close_start):
+                    open_hours = (cs - os) / pd.Timedelta(1, "s") / 60 / 60
+                    dome_open.append([day_obs, os, cs, open_hours])
     dome_open = pd.DataFrame(dome_open, columns=["day_obs", "open_time", "close_time", "open_hours"])
     return dome_open
 
