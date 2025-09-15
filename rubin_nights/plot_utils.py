@@ -44,6 +44,7 @@ def detector_plot(
     vmin: float | None = None,
     vmax: float | None = None,
     cmap: Colormap | str = "viridis",
+    text_color: str = "black",
     ax: Axes | None = None,
 ) -> tuple[Figure | SubFigure | None, Axes]:
     """Plot the values per detector arranged across the focal plane.
@@ -64,8 +65,11 @@ def detector_plot(
         If None, will use the nanmin/nanmax of the data.
     cmap
         Matplotlib colormap.
+    test_color
+        Color for the text over each detector.
     ax
         Matplotlib axes to use for the plot.
+
 
     Returns
     -------
@@ -102,7 +106,7 @@ def detector_plot(
             ha="center",
             va="center",
             size="large",
-            color="black",
+            color=text_color,
             rotation=row.textRot,
         )
 
