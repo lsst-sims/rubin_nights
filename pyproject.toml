@@ -21,6 +21,7 @@ urls = {documentation = "https://rubin-nights.lsst.io", repository = "https://gi
 dynamic = [ "version" ]
 dependencies = [
     "astropy",
+    "astroplan",
     "httpx",
     "matplotlib",
     "numpy",
