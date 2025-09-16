@@ -16,7 +16,7 @@ __all__ = ["add_rubin_sim_cols", "consdb_to_opsim"]
 
 logger = logging.getLogger(__name__)
 
-ZEROPOINT_OFFSETS_LSSTCAM = {"u": 0.04, "g": 0.06, "r": 0.11, "i": 0.09, "z": 0.11, "y": 0.08}
+ZEROPOINT_OFFSETS_LSSTCAM = {"u": 0.12, "g": 0.09, "r": 0.15, "i": 0.14, "z": 0.15, "y": 0.13}
 # lsstcomcam offsets based on refcats at the time of processing
 ZEROPOINT_OFFSETS_LSSTCOMCAM = {"u": 0.26, "g": -0.14, "r": -0.09, "i": -0.10, "z": -0.13, "y": -0.18}
 # lsstcomcam offsets for DP1 are probably 0 although might be
