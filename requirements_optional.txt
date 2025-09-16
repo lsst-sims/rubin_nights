@@ -1,0 +1,9 @@
+lsst-resources
+rubin-scheduler
+rubin-sim
+black
+isort
+ruff
+pytest
+mypy
+types-pyyaml
