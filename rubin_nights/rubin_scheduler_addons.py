@@ -325,8 +325,6 @@ def add_model_slew_times(
     # Special - in case there are few visits which have nan positions.
     if isinstance(distances, float):
         distances = np.array([distances])
-    if np.isnan(distances):
-        distances = np.array([0])
     slewing = np.concatenate([np.array([0]), distances])
     slewing["slew_distance"] = np.concatenate([np.array([0]), distances])
 
