@@ -322,10 +322,9 @@ def add_model_slew_times(
     distances = angular_separation(
         visits.s_ra[1:].values, visits.s_dec[1:].values, visits.s_ra[0:-1].values, visits.s_dec[0:-1].values
     )
-    # Special - in case there are few visits which have nan positions.
+    # Special - in case there is only one value
     if isinstance(distances, float):
         distances = np.array([distances])
-    slewing = np.concatenate([np.array([0]), distances])
     slewing["slew_distance"] = np.concatenate([np.array([0]), distances])
 
     visits = visits.merge(slewing, right_index=True, left_index=True)
