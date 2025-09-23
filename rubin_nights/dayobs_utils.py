@@ -77,6 +77,6 @@ def day_obs_sunset_sunrise(day_obs: str | int, sun_alt: float = -12) -> tuple[Ti
     except UnknownSiteException:
         # Better to use Rubin, but old astropy installs might not have it.
         observer = Observer.at_site("Cerro Pachon")
-    sunset = Time(observer.sun_set_time(day_obs_time, which="next", horizon=sun_alt * u.deg), format="jd")
-    sunrise = Time(observer.sun_rise_time(day_obs_time, which="next", horizon=sun_alt * u.deg), format="jd")
+    sunset = Time(observer.sun_set_time(day_obs_time, which="next", horizon=sun_alt * u.deg), format="jd", scale="tai")
+    sunrise = Time(observer.sun_rise_time(day_obs_time, which="next", horizon=sun_alt * u.deg), format="jd", scale="tai")
     return (sunset, sunrise)

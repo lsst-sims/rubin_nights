@@ -89,7 +89,9 @@ def get_dome_open_close(t_start: Time, t_end: Time, efd_client: InfluxQueryClien
                 )
                 close_start = closing.iloc[gaps].index.values
                 for os, cs in zip(open_start, close_start):
-                    open_hours = (cs - os) / pd.Timedelta(1, "s") / 60 / 60
+                    open_time = Time(os).tai.mjd
+                    close_time = Time(cs).tai.mjd
+                    open_hours = (close_time - open_time) * 24
                     dome_open.append([day_obs, os, cs, open_hours])
     dome_open = pd.DataFrame(dome_open, columns=["day_obs", "open_time", "close_time", "open_hours"])
     return dome_open
