@@ -82,7 +82,7 @@ def add_rubin_sim_cols(
         psf_col = "psf_sigma"
         pixel_scale_col = "pixel_scale"
     else:
-        raise ValueError (
+        raise ValueError(
             "cols_from should indicate either ccd or visit table, and start with 'ccd' or 'visit'",
         )
 

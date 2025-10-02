@@ -25,6 +25,7 @@ except ModuleNotFoundError:
 
     class CSCState(enum.IntEnum):
         """CSC summaryState constants."""
+
         OFFLINE = 4
         STANDBY = 5
         DISABLED = 1
@@ -33,6 +34,7 @@ except ModuleNotFoundError:
 
     class ScriptState(enum.IntEnum):
         """ScriptState constants."""
+
         UNKNOWN = 0
         UNCONFIGURED = 1
         CONFIGURED = 2
@@ -52,6 +54,7 @@ except ModuleNotFoundError:
         The CSC allows other positive values, as well,
         but those should only be used for unit testing.
         """
+
         MAIN_TEL = 1
         AUX_TEL = 2
         OCS = 3
@@ -61,6 +64,7 @@ class ScriptQueueExtensions(enum.IntEnum):
     """Add assigned `salIndex` values for other portions of the
     scriptqueue context feed.
     """
+
     ERRORS = 4
     EXP_SIMONYI = 5
     EXP_AUX = 6
@@ -70,8 +74,6 @@ class ScriptQueueExtensions(enum.IntEnum):
     NARRATIVE_LOG_SIMONYI = 20
     NARRATIVE_LOG_AUX = 21
     NARRATIVE_LOG_OTHER = 22
-
-
 
 
 SalIndexExtended = enum.IntEnum(
