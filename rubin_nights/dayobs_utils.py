@@ -1,3 +1,5 @@
+import datetime
+
 import astropy.units as u
 from astroplan import Observer
 from astropy.coordinates.errors import UnknownSiteException
@@ -9,6 +11,7 @@ __all__ = [
     "time_to_day_obs",
     "day_obs_str_to_int",
     "day_obs_int_to_str",
+    "day_obs_to_date",
     "day_obs_to_time",
     "day_obs_sunset_sunrise",
 ]
@@ -38,6 +41,14 @@ def day_obs_int_to_str(day_obs: int) -> str:
 def day_obs_str_to_int(day_obs: str) -> int:
     """Day_obs string YYYY-MM-DD to integer YYYYMMDD."""
     return int(day_obs.replace("-", ""))
+
+
+def day_obs_to_date(day_obs: int | str) -> datetime.date:
+    day_obs_str = str(day_obs)
+    if "-" not in day_obs_str:
+        day_obs_str = day_obs_int_to_str(int(day_obs))
+    vals = day_obs_str.split("-")
+    return datetime.date(int(vals[0]), int(vals[1]), int(vals[2]))
 
 
 def day_obs_to_time(day_obs: int | str) -> Time:
@@ -77,6 +88,10 @@ def day_obs_sunset_sunrise(day_obs: str | int, sun_alt: float = -12) -> tuple[Ti
     except UnknownSiteException:
         # Better to use Rubin, but old astropy installs might not have it.
         observer = Observer.at_site("Cerro Pachon")
-    sunset = Time(observer.sun_set_time(day_obs_time, which="next", horizon=sun_alt * u.deg), format="jd", scale="tai")
-    sunrise = Time(observer.sun_rise_time(day_obs_time, which="next", horizon=sun_alt * u.deg), format="jd", scale="tai")
+    sunset = Time(
+        observer.sun_set_time(day_obs_time, which="next", horizon=sun_alt * u.deg), format="jd", scale="tai"
+    )
+    sunrise = Time(
+        observer.sun_rise_time(day_obs_time, which="next", horizon=sun_alt * u.deg), format="jd", scale="tai"
+    )
     return (sunset, sunrise)
