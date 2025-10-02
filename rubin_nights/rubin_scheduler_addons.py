@@ -32,7 +32,11 @@ GAUSSIAN_FWHM_OVER_SIGMA: float = 2.0 * np.sqrt(2.0 * np.log(2.0))
 __all__ = ["add_rubin_scheduler_cols", "add_model_slew_times"]
 
 
-def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") -> pd.DataFrame:
+def add_rubin_scheduler_cols(
+    visits: pd.DataFrame,
+    instrument: str = "lsstcam",
+    cols_from: str = "visit1_quicklook",
+) -> pd.DataFrame:
     """Add columns that require rubin_scheduler (including Almanac)
     parallactic angle and rotator angle, LST, and moon information.
 
@@ -44,6 +48,11 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
     instrument
         The instrument for the visits.
         Used to calculate the approproximate rotTelPos value.
+    cols_from
+        Use columns expected from the visit1_quicklook
+        table or from the ccdvisit1_quicklook table.
+        The difference is whether _median is at the end of the column name.
+
 
     Returns
     -------
@@ -66,8 +75,19 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
         logger.info("No rubin_scheduler available, simply returning visits.")
         return visits
 
+    if cols_from.startswith("visit"):
+        psf_col = "psf_sigma_median"
+        pixel_scale_col = "pixel_scale_median"
+    elif cols_from.startswith("ccd"):
+        psf_col = "psf_sigma"
+        pixel_scale_col = "pixel_scale"
+    else:
+        raise ValueError(
+            "cols_from should indicate either ccd or visit table, and start with 'ccd' or 'visit'",
+        )
+
     # Try to add seeing columns, if "psf_sigma_median" in visits.
-    if "psf_sigma_median" in visits.columns:
+    if psf_col in visits.columns:
         seeing_cols = [
             "fwhm_eff",
             "fwhm_geom",
@@ -83,14 +103,14 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
 
         # replace PLATESCALE with x.pixel_scale_median when available
         pixel_scale: float | npt.NDArray
-        if "pixel_scale_median" in visits.columns:
+        if pixel_scale_col in visits.columns:
             pixel_scale = np.where(
-                np.isnan(visits.pixel_scale_median.values), PLATESCALE, visits.pixel_scale_median.values
+                np.isnan(visits[pixel_scale_col].values), PLATESCALE, visits[pixel_scale_col].values
             )
         else:
             pixel_scale = PLATESCALE
-        if "psf_sigma_median" in visits.columns:
-            seeing_df["fwhm_eff"] = visits.psf_sigma_median * GAUSSIAN_FWHM_OVER_SIGMA * pixel_scale
+        if psf_col in visits.columns:
+            seeing_df["fwhm_eff"] = visits[psf_col] * GAUSSIAN_FWHM_OVER_SIGMA * pixel_scale
             seeing_df["fwhm_geom"] = SeeingModel.fwhm_eff_to_fwhm_geom(seeing_df.fwhm_eff)
 
         sev = SysEngVals()
@@ -105,7 +125,7 @@ def add_rubin_scheduler_cols(visits: pd.DataFrame, instrument: str = "lsstcam") 
         # SeeingModel uses 0.6 and RHL agrees
         airmass_corrections = np.power(visits.airmass.values, 0.6)
         fwhm_system = 0.4
-        # leave this? Bob says fwhm_system does not need X dependency
+        # leave this or not? Does system perform differently with airmass?
         fwhm_atmo = np.sqrt((seeing_df.fwhm_eff / 1.16) ** 2 - fwhm_system**2) / 1.04
         seeing_df["fwhm_500_zenith"] = fwhm_atmo / wavelen_corrections / airmass_corrections
 

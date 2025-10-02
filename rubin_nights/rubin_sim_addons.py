@@ -30,6 +30,7 @@ def add_rubin_sim_cols(
     visits: pd.DataFrame,
     instrument: str = "lsstcam",
     predicted_zeropoint_offsets: dict | None = None,
+    cols_from: str = "visit1_quicklook",
 ) -> pd.DataFrame:
     """Add columns that require rubin_sim:
     predicted zeropoint and converted skybackground (mag/sq arcsec).
@@ -45,6 +46,10 @@ def add_rubin_sim_cols(
     predicted_zeropoint_offsets
         Offsets to add to the predicted zeropoint values.
         If None, will pick appropriate defaults based on instrument.
+    cols_from
+        Use columns expected from the visit1_quicklook
+        table or from the ccdvisit1_quicklook table.
+        The difference is whether _median is at the end of the column name.
 
     Returns
     -------
@@ -56,20 +61,35 @@ def add_rubin_sim_cols(
     Notes
     -----
     Columns added are:
-    zero_point_1s (zero_point_median scaled to 1s)
+    zero_point_1s (zero_point[_median] scaled to 1s)
     zero_point_1s_pred (predicted from rubin_sim.predicted_zeropoint)
     clouds (the difference of the above values)
-    sky_bg_median_mag (sky_bg_median scaled to mag/arcsecond^2)
-    cat_m5 (calculated m5 from median values)
+    sky_bg_mag (sky_bg[_median] scaled to mag/arcsecond^2)
+    cat_m5 (calculated m5 from zeropoint/sky/readnoise values)
     """
     if not HAS_RUBIN_SIM:
         logger.info("No rubin_sim available, simply returning visits.")
         return visits
 
-    necessary_cols = ["zero_point_median", "sky_bg_median"]
+    if cols_from.startswith("visit"):
+        zero_point_col = "zero_point_median"
+        sky_col = "sky_bg_median"
+        psf_col = "psf_sigma_median"
+        pixel_scale_col = "pixel_scale_median"
+    elif cols_from.startswith("ccd"):
+        zero_point_col = "zero_point"
+        sky_col = "sky_bg"
+        psf_col = "psf_sigma"
+        pixel_scale_col = "pixel_scale"
+    else:
+        raise ValueError (
+            "cols_from should indicate either ccd or visit table, and start with 'ccd' or 'visit'",
+        )
+
+    necessary_cols = [zero_point_col, sky_col]
     for c in necessary_cols:
         if c not in visits.columns:
-            logger.info("Missing columns for psf_sigma_median, zero_point_median or sky_bg_median.")
+            logger.error(f"Missing columns for {necessary_cols}. " "Could not add rubin_sim_addons columns.")
             return visits
 
     # Calculate additional zeropoints and sky columns
@@ -86,7 +106,7 @@ def add_rubin_sim_cols(
         "zero_point_1s",
         "zero_point_1s_pred",
         "clouds",
-        "sky_bg_median_mag",
+        "sky_bg_mag",
         "cat_m5",
     ]
     new_df = pd.DataFrame(np.zeros((len(visits), len(new_cols))), columns=new_cols, index=visits.index)
@@ -105,42 +125,43 @@ def add_rubin_sim_cols(
             # Bail if zero or nan exposure time or not in bandpass dictionary.
             x.zero_point_1s = np.nan
             x.zero_point_1s_pred = np.nan
-            x.sky_bg_median_mag = np.nan
+            x.sky_bg_mag = np.nan
             x.cat_m5 = np.nan
             return x
         # Calculate 1-s 1-e- zeropoints (measured and predicted)
-        x.zero_point_1s = x.zero_point_median - 2.5 * np.log10(x.exp_time)
+        x.zero_point_1s = x[zero_point_col] - 2.5 * np.log10(x.exp_time)
         x.zero_point_1s_pred = predicted_zeropoint(x.band, x.airmass, 1) + predicted_zeropoint_offsets[x.band]
         # Convert sky counts/pixel to magnitude/arcsecond^2
         zp_sky = predicted_zeropoint_hardware(x.band, x.shut_time) + predicted_zeropoint_offsets[x.band]
         # replace PLATESCALE with x.pixel_scale_median when available
-        if "pixel_scale_median" in x and not np.isnan(x.pixel_scale_median):
-            pixel_scale = x.pixel_scale_median
+        if pixel_scale_col in x and not np.isnan(x[pixel_scale_col]):
+            pixel_scale = x[pixel_scale_col]
         else:
             pixel_scale = PLATESCALE
-        x.sky_bg_median_mag = -2.5 * np.log10(x.sky_bg_median / pixel_scale**2) + zp_sky
+        x.sky_bg_mag = -2.5 * np.log10(x[sky_col] / pixel_scale**2) + zp_sky
         return x
 
     visits = visits.apply(calc_predicted_zeropoints, axis=1)
     visits.clouds = visits.zero_point_1s_pred - visits.zero_point_1s
-    if "psf_sigma_median" in visits.columns:
+    if psf_col in visits.columns:
         # Calculate predicted m5 with an estimate of readnoise
         noise_instr_sq = 10
-        # psf_area_median would be good to use but going from fwhm_eff
+        # psf_area would be good to use but going from fwhm_eff
         # makes us more internally self-consistent
         pixel_scale: float | npt.NDArray
-        if "pixel_scale_median" in visits.columns:
+        if pixel_scale_col in visits.columns:
             pixel_scale = np.where(
-                np.isnan(visits.pixel_scale_median.values), PLATESCALE, visits.pixel_scale_median.values
+                np.isnan(visits[pixel_scale_col].values), PLATESCALE, visits[pixel_scale_col].values
             )
         else:
             pixel_scale = PLATESCALE
-        fwhm_eff = visits.psf_sigma_median * GAUSSIAN_FWHM_OVER_SIGMA * pixel_scale
+        fwhm_eff = visits[psf_col] * GAUSSIAN_FWHM_OVER_SIGMA * pixel_scale
         neff = calc_neff(fwhm_eff, pixel_scale)
-        total_noise_sq = neff * (visits.sky_bg_median + noise_instr_sq)
+        total_noise_sq = neff * (visits[sky_col] + noise_instr_sq)
+
         snr = 5
         counts_5sigma = (snr**2) / (2) + np.sqrt((snr**4) / (4) + snr**2 * total_noise_sq)
-        visits.cat_m5 = -2.5 * np.log10(counts_5sigma) + visits.zero_point_median
+        visits.cat_m5 = -2.5 * np.log10(counts_5sigma) + visits[zero_point_col]
 
     return visits
 
