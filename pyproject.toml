@@ -38,7 +38,7 @@ rubin = [
     "rubin-scheduler",
     "rubin-sim",
     "sqlalchemy",
-    "ts_xml@git+https://github.com/lsst-ts/ts_xml.git"
+    #"ts_xml@git+https://github.com/lsst-ts/ts_xml.git"
 ]
 test = [
      "pytest",
