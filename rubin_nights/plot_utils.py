@@ -1,4 +1,5 @@
 import logging
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -10,7 +11,12 @@ from matplotlib.colors import Colormap, Normalize
 from matplotlib.figure import Figure, SubFigure
 from matplotlib.patches import Polygon
 
-__all__ = ["PlotStyles", "detector_plot"]
+try:
+    import healpy as hp
+except ModuleNotFoundError:
+    warnings.warn("Healpy used for some quick plots.")
+
+__all__ = ["PlotStyles", "hp_laea", "hp_moll", "detector_plot"]
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +40,28 @@ class PlotStyles:
         "z": (0, (3, 5, 1, 5, 1, 5)),
         "y": (0, (3, 1, 1, 1)),
     }
+
+
+def hp_laea(
+    hp_array: np.ndarray,
+    alpha: np.ndarray | None = None,
+    label: str | None = None,
+    vmin: float | None = None,
+    vmax: float | None = None,
+) -> None:
+    hp.azeqview(hp_array, alpha=alpha, rot=(0, -90, 0), lamb=True, reso=17.5, min=vmin, max=vmax, title=label)
+    hp.graticule()
+
+
+def hp_moll(
+    hp_array: np.ndarray,
+    alpha: np.ndarray | None = None,
+    label: str | None = None,
+    vmin: float | None = None,
+    vmax: float | None = None,
+) -> None:
+    hp.mollview(hp_array, alpha=alpha, min=vmin, max=vmax, title=label)
+    hp.graticule()
 
 
 def detector_plot(
