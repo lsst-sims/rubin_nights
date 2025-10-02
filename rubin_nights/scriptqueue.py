@@ -4,27 +4,14 @@ import astropy.units as u
 import numpy as np
 import pandas as pd
 from astropy.time import Time, TimeDelta
-from lsst.ts.xml.enums.Script import ScriptState
-from lsst.ts.xml.enums.ScriptQueue import SalIndex
-from lsst.ts.xml.sal_enums import State as CSCState
 
 from .influx_query import InfluxQueryClient
 from .logging_query import ExposureLogClient, NarrativeLogClient
+from .ts_xml_enums import CSCState, SalIndex, SalIndexExtended, ScriptState, apply_enum
 
 # To generate a tiny gap in time
 EPS_TIME = np.timedelta64(1, "ms")
 TIMESTAMP_ZERO = Time(0, format="unix_tai").utc.datetime
-
-SALINDEX_EXTRAS = {"narrative_log": 0, "errors": 4, "simonyi_exp": 5, "at_exp": 6, "autolog": 10}
-
-
-def apply_enum(x: pd.Series, column: str, enumvals: ScriptState | CSCState) -> str:
-    return enumvals(x[column]).name
-
-
-def make_datetime(x: pd.Series, column: str) -> str:
-    return Time(x[column], format="isot", scale="tai").utc.datetime
-
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +27,14 @@ __all__ = [
     "get_exposure_info",
     "get_consolidated_messages",
 ]
+
+
+def make_datetime(x: pd.Series, column: str) -> str:
+    """Change a timestamp in TAI format to UTC datetime format.
+
+    e.g. convert exposure time into scriptqueue 'time' format
+    """
+    return Time(x[column], format="isot", scale="tai").utc.datetime
 
 
 def get_scheduler_configs(
@@ -138,7 +133,7 @@ def get_scheduler_configs(
     )
     # The obsenv is shared across all scriptqueues.
     # The salIndex has to apply to all.
-    obsenv["salIndex"] = SALINDEX_EXTRAS["autolog"]
+    obsenv["salIndex"] = SalIndexExtended.AUTOLOG_OTHER.value
     obsenv["script_salIndex"] = -1
 
     # Scheduler dependency information - updated independently of obsenv.
@@ -289,6 +284,8 @@ def get_script_state(
         The time to start searching for script events.
     t_end
         The time at which to end searching for script events.
+    queue_index
+        The SalIndex (1/2/3 or None for all queues) to check for script state.
     efd_client
         Sync EfdClient to query the efd.
 
@@ -380,8 +377,6 @@ def get_script_status(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
         The time at which to end searching for script events.
     efd_client
         EfdClient to query the efd.
-    obsenv_client:
-        EfdClient to query the obsenv (different database).
 
     Returns
     -------
@@ -392,8 +387,9 @@ def get_script_status(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
 
     Note
     ----
-    The index of the returned dataframe is chosen from the timestamps
-    recorded for the script. In order to best place the script message
+    The (timestamp) index of the returned dataframe is chosen from the
+    timestamps recorded for the script.
+    In order to best place the script message
     inline with other events such as acquired images, the time used is the
     `timestampRunStart` if available, `timestampConfigureEnd` next, and
     then falls back to `timestampConfigureStart` or `timestampProcessStart`
@@ -576,7 +572,7 @@ def get_error_codes(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -
             inplace=True,
         )
         # Add a salindex so we can color-code based on this as a "source"
-        errs["salIndex"] = SALINDEX_EXTRAS["errors"]
+        errs["salIndex"] = SalIndexExtended.ERRORS.value
         errs["finalStatus"] = "ERR"
         errs["timestampProcessStart"] = errs.index.values.copy()
     else:
@@ -748,7 +744,11 @@ def get_narrative_and_errors(
         # rename some columns to match error data
         messages.rename({"time_lost_type": "error_code", "user_id": "origin"}, axis=1, inplace=True)
         # Add a salindex so we can color-code based on this as a "source"
-        messages["salIndex"] = SALINDEX_EXTRAS["narrative_log"]
+        messages["salIndex"] = SalIndexExtended.NARRATIVE_LOG_OTHER.value
+        idx = messages.query("component.str.contains('Simonyi') or component.str.contains('simonyi')").index
+        messages.loc[idx, "salIndex"] = SalIndexExtended.NARRATIVE_LOG_SIMONYI.value
+        idx = messages.query("component.str.contains('Aux') or component.str.contains('aux')").index
+        messages.loc[idx, "salIndex"] = SalIndexExtended.NARRATIVE_LOG_AUX.value
         messages["error_code"] = 0
         messages["finalStatus"] = "Log"
         messages["timestampProcessStart"] = messages.apply(make_datetime, args=["date_begin"], axis=1)
@@ -807,7 +807,7 @@ def get_exposure_info(
     if len(image_acquisition_mt) > 0:
         for col in [c for c in image_acquisition_mt.columns if c.startswith("timestamp")]:
             image_acquisition_mt[col] = Time(image_acquisition_mt[col], format="unix_tai").utc.datetime
-        image_acquisition_mt["salIndex"] = SALINDEX_EXTRAS["simonyi_exp"]
+        image_acquisition_mt["salIndex"] = SalIndexExtended.EXP_SIMONYI.value
         image_acquisition_mt["script_salIndex"] = 0
         image_acquisition_mt["finalStatus"] = "Image Acquired"
 
@@ -836,7 +836,7 @@ def get_exposure_info(
     if len(image_acquisition_cc) > 0:
         for col in [c for c in image_acquisition_cc.columns if c.startswith("timestamp")]:
             image_acquisition_cc[col] = Time(image_acquisition_cc[col], format="unix_tai").utc.datetime
-        image_acquisition_cc["salIndex"] = SALINDEX_EXTRAS["simonyi_exp"]
+        image_acquisition_cc["salIndex"] = SalIndexExtended.EXP_SIMONYI.value
         image_acquisition_cc["script_salIndex"] = 0
         image_acquisition_cc["finalStatus"] = "Image Acquired"
 
@@ -867,7 +867,7 @@ def get_exposure_info(
         for col in [c for c in image_acquisition_at.columns if c.startswith("timestamp")]:
             # Is it possible ATCamera is not using tai?
             image_acquisition_at[col] = Time(image_acquisition_at[col], format="unix_tai").utc.datetime
-        image_acquisition_at["salIndex"] = SALINDEX_EXTRAS["at_exp"]
+        image_acquisition_at["salIndex"] = SalIndexExtended.EXP_AUX.value
         image_acquisition_at["script_salIndex"] = 0
         image_acquisition_at["finalStatus"] = "Image Acquired"
 
@@ -893,7 +893,12 @@ def get_exposure_info(
         exp_logs["img_time"] = exp_log_image_time
         exp_logs.set_index("img_time", inplace=True)
         exp_logs.index = exp_logs.index.tz_localize("UTC")
-        exp_logs["salIndex"] = SALINDEX_EXTRAS["narrative_log"]
+        # Assign the exposure logs to the associated narrative log index
+        exp_logs["salIndex"] = SalIndexExtended.NARRATIVE_LOG_OTHER.value
+        idx = exp_logs.query("instrument == 'LSSTCam' or instrument == 'LSSTComCam'").index
+        exp_logs.loc[idx, "salIndex"] = SalIndexExtended.NARRATIVE_LOG_SIMONYI.value
+        idx = exp_logs.query("instrument == 'LATISS'").index
+        exp_logs.loc[idx, "salIndex"] = SalIndexExtended.NARRATIVE_LOG_AUX.value
         exp_logs["script_salIndex"] = 0
         # Rename some columns in the exposure log to consolidate here
         exp_logs.rename(
@@ -1006,15 +1011,21 @@ def get_consolidated_messages(t_start: Time, t_end: Time, endpoints: dict) -> tu
     # Wrap description, for on-screen spacing
     efd_and_messages["description"] = efd_and_messages["description"].str.wrap(100)
 
-    # Add some big labels which could be used to indicate times where
-    # where activity passes from one job to another.
+    # Add some big labels which could be used to indicate times
+    # where activity passes from one task to another.
     # The blocks can be complicated - a single BLOCK can actually
     # trigger multiple AddBlock commands (?)
     # So go back and check command_addBlock directly.
     topic = "lsst.sal.Scheduler.command_addBlock"
-    block_names = endpoints["efd"].select_time_series(topic, ["id"], t_start, t_end, index=None)
+    block_names = endpoints["efd"].select_time_series(topic, ["id", "salIndex"], t_start, t_end, index=None)
+    block_names.index = block_names.index - EPS_TIME * 30
+    idx = block_names.query("salIndex == 1 or salIndex == 3").index
+    block_names.loc[idx, "salIndex"] = SalIndexExtended.AUTOLOG_SIMONYI.value
+    idx = block_names.query("salIndex == 2").index
+    block_names.loc[idx, "salIndex"] = SalIndexExtended.AUTOLOG_AUX.value
     # Find the FBS setup and starts
-    fbs_resume_times = efd_and_messages.query('name == "MTSchedulerResume"')
+    mt_fbs_resume_times = efd_and_messages.query("name == 'MTSchedulerResume'")
+    at_fbs_resume_times = efd_and_messages.query("name == 'ATSchedulerResume'")
     scheduler_configs = efd_and_messages.query('name == "Scheduler configuration"')
 
     def find_fbs_yaml(row: pd.Series, scheduler_configs: pd.DataFrame) -> str:
@@ -1022,33 +1033,37 @@ def get_consolidated_messages(t_start: Time, t_end: Time, endpoints: dict) -> tu
         best_config = earlier_configs.iloc[-1].config
         return best_config.split(",")[-1]
 
-    sched_yamls = fbs_resume_times.apply(find_fbs_yaml, args=[scheduler_configs], axis=1)
-    sched_yamls = pd.DataFrame(sched_yamls, columns=["id"])
+    mt_sched_yamls = mt_fbs_resume_times.apply(find_fbs_yaml, args=[scheduler_configs], axis=1)
+    mt_sched_yamls = pd.DataFrame(mt_sched_yamls, columns=["id"])
+    mt_sched_yamls["salIndex"] = SalIndexExtended.AUTOLOG_SIMONYI.value
+    at_sched_yamls = at_fbs_resume_times.apply(find_fbs_yaml, args=[scheduler_configs], axis=1)
+    at_sched_yamls = pd.DataFrame(at_sched_yamls, columns=["id"])
+    at_sched_yamls["salIndex"] = SalIndexExtended.AUTOLOG_AUX.value
+    sched_yamls = pd.concat([mt_sched_yamls, at_sched_yamls])
     if len(block_names) > 0 and len(sched_yamls) > 0:
-        job_changes = pd.concat([block_names, sched_yamls])
+        task_changes = pd.concat([block_names, sched_yamls])
     elif len(block_names) == 0:
-        job_changes = sched_yamls
+        task_changes = sched_yamls
     else:
-        job_changes = block_names
+        task_changes = block_names
 
-    if len(job_changes) > 0:
+    if len(task_changes) > 0:
         # If we have some addBlock or resumeScheduler events, add those.
-        # Note that we could have images and events -- running from scripts.
+        # Note that we could also have images and events running from scripts.
         # .. but I don't know how to track these.
-        job_changes = job_changes.sort_index()
-        job_changes.rename({"id": "name"}, axis=1, inplace=True)
-        job_changes["salIndex"] = SALINDEX_EXTRAS["autolog"]
-        job_changes["script_salIndex"] = -1
-        job_changes["finalStatus"] = "Job Change"
-        job_changes["config"] = ""
-        job_changes["description"] = "New BLOCK or FBS configuration"
-        job_changes["timestampProcessStart"] = job_changes.index.copy()
-        job_changes["timestampProcessEnd"] = np.concatenate(
-            [job_changes.index[1:].copy(), np.array([efd_and_messages.index[-1]])]
+        task_changes = task_changes.sort_index()
+        task_changes.rename({"id": "name"}, axis=1, inplace=True)
+        task_changes["script_salIndex"] = -1
+        task_changes["finalStatus"] = "Task Change"
+        task_changes["config"] = ""
+        task_changes["description"] = "New BLOCK or FBS configuration"
+        task_changes["timestampProcessStart"] = task_changes.index.copy()
+        task_changes["timestampProcessEnd"] = np.concatenate(
+            [task_changes.index[1:].copy(), np.array([efd_and_messages.index[-1]])]
         )
         # Slide these a fraction of a second earlier to slot before job change
-        job_changes.index = job_changes.index - pd.Timedelta(1, "ns")
-        efd_and_messages = pd.concat([efd_and_messages, job_changes]).sort_index()
+        task_changes.index = task_changes.index - pd.Timedelta(1, "ns")
+        efd_and_messages = pd.concat([efd_and_messages, task_changes]).sort_index()
 
     # use an integer index, which makes it easier to pull up values
     # plus avoids occasional failures of time uniqueness
