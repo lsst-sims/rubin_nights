@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from astropy.time import Time
 
-from .influx_query import InfluxQueryClient, day_obs_from_index
+from .influx_query import InfluxQueryClient, day_obs_from_efd_index
 
 # from lsst.ts.xml.sal_enums import State as CSCState
 
@@ -57,7 +57,7 @@ def get_dome_open_close(t_start: Time, t_end: Time, efd_client: InfluxQueryClien
         return dome_shutter
 
     # Add day_obs
-    dome_shutter["day_obs"] = dome_shutter.apply(day_obs_from_index, axis=1)
+    dome_shutter["day_obs"] = dome_shutter.apply(day_obs_from_efd_index, axis=1)
     # Find open/close times in each day_obs
     # Fails on day_obs 20250809 -- TODO
     dome_open = []
@@ -89,10 +89,10 @@ def get_dome_open_close(t_start: Time, t_end: Time, efd_client: InfluxQueryClien
                 )
                 close_start = closing.iloc[gaps].index.values
                 for os, cs in zip(open_start, close_start):
-                    open_time = Time(os).tai.mjd
-                    close_time = Time(cs).tai.mjd
-                    open_hours = (close_time - open_time) * 24
-                    dome_open.append([day_obs, os, cs, open_hours])
+                    open_time = Time(os).tai
+                    close_time = Time(cs).tai
+                    open_hours = (close_time - open_time).jd * 24
+                    dome_open.append([day_obs, open_time, close_time, open_hours])
     dome_open = pd.DataFrame(dome_open, columns=["day_obs", "open_time", "close_time", "open_hours"])
     return dome_open
 

@@ -7,10 +7,10 @@ from astropy.time import Time
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["InfluxQueryClient", "day_obs_from_index"]
+__all__ = ["InfluxQueryClient", "day_obs_from_efd_index"]
 
 
-def day_obs_from_index(x: pd.Series) -> int:
+def day_obs_from_efd_index(x: pd.Series) -> int:
     """Use with pandas apply(efd_values, axis=1) to get dayobs."""
     dayobs_time = Time(np.floor(Time(x.name, scale="utc").tai.mjd - 0.5), format="mjd", scale="tai")
     return int(dayobs_time.isot.split("T")[0].replace("-", ""))

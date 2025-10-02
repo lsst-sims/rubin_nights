@@ -291,8 +291,9 @@ class NarrativeLogClient(LoggingServiceClient):
         if len(messages) == log_limit:
             logger.warning(f"Narrative log messages hit log_limit ({log_limit})")
         if len(messages) > 0:
-            # Strip out excessive \r\n values
+
             def strip_rns(x: pd.Series) -> str:
+                """Remove excessive returns from narrative log messages."""
                 return x.message_text.replace("\r\n", "\n").replace("\n\n", "\n").rstrip("\n")
 
             # Convert string time to datetime
@@ -339,6 +340,7 @@ class NarrativeLogClient(LoggingServiceClient):
             else:
                 key = "components_json"
             messages["component"] = messages.apply(simplify_log, args=(key,), axis=1)
+
         return messages
 
 
@@ -389,6 +391,6 @@ class ExposureLogClient(LoggingServiceClient):
 
         messages = self.query(params=params)
         if len(messages) == log_limit:
-            logger.warning(f"Narrative log messages hit log_limit ({log_limit})")
+            logger.warning(f"Exposure log messages hit log_limit ({log_limit})")
 
         return messages
