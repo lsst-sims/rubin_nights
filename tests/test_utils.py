@@ -24,11 +24,11 @@ class TestUtils(unittest.TestCase):
 
         # Do we turn a given time into a day_obs as expected
         day_obs = "2025-05-03"
-        expected_sunset = 60798.95760079147
-        expected_sunrise = 60799.431188743096
-        time = Time(expected_sunset, format="mjd", scale="utc")
+        expected_sunset = 60798.95802903221
+        expected_sunrise = 60799.431616983835
+        time = Time(expected_sunset, format="mjd", scale="tai")
         self.assertEqual(rn_dayobs.time_to_day_obs(time), day_obs)
-        time = Time(expected_sunrise, format="mjd", scale="utc")
+        time = Time(expected_sunrise, format="mjd", scale="tai")
         self.assertEqual(rn_dayobs.time_to_day_obs(time), day_obs)
 
         # And day_obs into a time (at the start of the dayobs)
@@ -36,7 +36,7 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(rn_dayobs.day_obs_to_time(day_obs), day_obs_time)
 
         # For a given day_obs do we find sunset/sunrise correctly
-        sunset, sunrise = rn_dayobs.day_obs_sunset_sunrise(day_obs)
+        sunset, sunrise = rn_dayobs.day_obs_sunset_sunrise(day_obs, sun_alt=-12)
         self.assertAlmostEqual(expected_sunset, sunset.mjd)
         self.assertAlmostEqual(expected_sunrise, sunrise.mjd)
         # And if you provide day_obs as an int, does that work too
