@@ -6,8 +6,6 @@ from astropy.time import Time
 
 from .influx_query import InfluxQueryClient, day_obs_from_efd_index
 
-# from lsst.ts.xml.sal_enums import State as CSCState
-
 
 __all__ = ["get_dome_open_close", "mtm1m3_slewflag_times", "get_rotator_limits", "get_tma_limits"]
 
