@@ -561,7 +561,7 @@ def get_error_codes(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -
         def strip_csc(x: pd.Series) -> str:
             return (
                 x.topic.replace("lsst.sal", "").replace("logevent_errorCode", "").replace(".", "")
-                + "CSC error"
+                + " CSC error"
             )
 
         errs["component"] = errs.apply(strip_csc, axis=1)
