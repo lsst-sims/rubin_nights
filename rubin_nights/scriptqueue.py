@@ -29,6 +29,11 @@ __all__ = [
 ]
 
 
+def queue_from_script_salindex(x: pd.Series) -> int:
+    """Return the salIndex of the queue, based on the script salIndex.
+    """
+    return int(str(x.script_salIndex)[0])
+
 def make_datetime(x: pd.Series, column: str) -> str:
     """Change a timestamp in TAI format to UTC datetime format.
 
@@ -621,9 +626,6 @@ def get_scriptqueue_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQue
         traceback_messages.rename({"salIndex": "script_salIndex"}, axis=1, inplace=True)
 
         # Add salIndex of queue where the script was run
-        def queue_from_script_salindex(x: pd.Series) -> int:
-            return int(str(x.script_salIndex)[0])
-
         traceback_messages["salIndex"] = traceback_messages.apply(queue_from_script_salindex, axis=1)
 
         def make_config_message(x: pd.Series) -> str:
@@ -678,9 +680,6 @@ def get_all_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQueryClient
             traceback_messages.rename({"salIndex": "script_salIndex"}, axis=1, inplace=True)
 
             # Add salIndex of queue where the script was run
-            def queue_from_script_salindex(x: pd.Series) -> int:
-                return int(str(x.script_salIndex)[0])
-
             traceback_messages["salIndex"] = traceback_messages.apply(queue_from_script_salindex, axis=1)
 
             def make_config_message(x: pd.Series, csc: str) -> str:
@@ -1018,11 +1017,12 @@ def get_consolidated_messages(t_start: Time, t_end: Time, endpoints: dict) -> tu
     # So go back and check command_addBlock directly.
     topic = "lsst.sal.Scheduler.command_addBlock"
     block_names = endpoints["efd"].select_time_series(topic, ["id", "salIndex"], t_start, t_end, index=None)
-    block_names.index = block_names.index - EPS_TIME * 30
-    idx = block_names.query("salIndex == 1 or salIndex == 3").index
-    block_names.loc[idx, "salIndex"] = SalIndexExtended.AUTOLOG_SIMONYI.value
-    idx = block_names.query("salIndex == 2").index
-    block_names.loc[idx, "salIndex"] = SalIndexExtended.AUTOLOG_AUX.value
+    if len(block_names) > 0:
+        block_names.index = block_names.index - EPS_TIME * 30
+        idx = block_names.query("salIndex == 1 or salIndex == 3").index
+        block_names.loc[idx, "salIndex"] = SalIndexExtended.AUTOLOG_SIMONYI.value
+        idx = block_names.query("salIndex == 2").index
+        block_names.loc[idx, "salIndex"] = SalIndexExtended.AUTOLOG_AUX.value
     # Find the FBS setup and starts
     mt_fbs_resume_times = efd_and_messages.query("name == 'MTSchedulerResume'")
     at_fbs_resume_times = efd_and_messages.query("name == 'ATSchedulerResume'")
