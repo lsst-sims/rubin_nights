@@ -4,6 +4,7 @@
 
 import enum
 import logging
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -12,8 +13,6 @@ logger = logging.getLogger(__name__)
 __all__ = ["ScriptState", "CSCState", "SalIndex", "SalIndexExtended", "apply_enum"]
 
 # Make mypy happy like this
-from typing import TYPE_CHECKING
-
 if TYPE_CHECKING:
     from lsst.ts.xml.enums.Script import ScriptState
     from lsst.ts.xml.enums.ScriptQueue import SalIndex
