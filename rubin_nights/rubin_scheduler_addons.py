@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 PLATESCALE = 0.2
 GAUSSIAN_FWHM_OVER_SIGMA: float = 2.0 * np.sqrt(2.0 * np.log(2.0))
-SKIPTIME = 300. / 60 / 60 / 24  # a big slew in JD/days
+SKIPTIME = 300.0 / 60 / 60 / 24  # a big slew in JD/days
 
 __all__ = ["add_rubin_scheduler_cols", "add_model_slew_times"]
 
@@ -208,7 +208,7 @@ def add_model_slew_times(
     efd_client: InfluxQueryClient,
     model_settle: float = 1,
     dome_crawl: bool = False,
-    slew_while_changing_filter : bool = False,
+    slew_while_changing_filter: bool = False,
     ideal_tma: float = 40,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """ "Add model (applied tma limits plus FBS-default tma limits) calculated
@@ -257,7 +257,7 @@ def add_model_slew_times(
     t_start = Time(visits.obs_start_mjd.min(), format="mjd", scale="tai")
     t_end = Time(visits.obs_start_mjd.max(), format="mjd", scale="tai")
     tma_speeds = get_tma_limits(t_start, t_end, efd_client)
-
+    readtime = 3.07
     kinematic_model_ideal = KinemModel(mjd0=t_start.mjd - 0.1)
     # When evaluating slew times between actual images, need to
     # remove delay for closed-loop (the image itself represents the delay)
@@ -269,7 +269,7 @@ def add_model_slew_times(
         azimuth_minpos=-262,
         azimuth_maxpos=262,
     )
-    kinematic_model_ideal.setup_camera(**rotator_movement(100), readtime=3.07)
+    kinematic_model_ideal.setup_camera(**rotator_movement(100), readtime=readtime)
     kinematic_model_ideal.mount_bands(["u", "g", "r", "i", "z", "y"])
 
     # Slower kinematic model to modify with actual telescope parameters
@@ -278,7 +278,7 @@ def add_model_slew_times(
     # When evaluating slew times between actual images, need to
     # remove delay for closed-loop (the image itself represents the delay)
     kinematic_model.setup_optics(cl_delay=[0, 0])
-    kinematic_model.setup_camera(band_changetime=120, **rotator_movement(100), readtime=3.07)
+    kinematic_model.setup_camera(band_changetime=120, **rotator_movement(100), readtime=readtime)
     kinematic_model.mount_bands(["u", "g", "r", "i", "z", "y"])
 
     model_slewtimes = {}  # current performance model
@@ -307,9 +307,13 @@ def add_model_slew_times(
                     sky_angle = np.array([np.radians(v.sky_rotation)])
                     # MJD should be time at start of slew
                     # But we may have large gaps or skipped visits
-                    mjd = np.array(max([v.prev_obs_end_mjd, v.obs_start_mjd - SKIPTIME]))
+                    if (v.obs_start_mjd - v.prev_obs_end_mjd) > SKIPTIME:
+                        mjd = v.obs_start_mjd
+                        min_overhead = 0.0
+                    else:
+                        mjd = v.prev_obs_end_mjd
+                        min_overhead = readtime
                     band = np.array([v.band])
-                    kinematic_model.overhead = kinematic_model.readtime
                     slewtime = kinematic_model.slew_times(
                         ra_rad,
                         dec_rad,
@@ -318,14 +322,14 @@ def add_model_slew_times(
                         bandname=band,
                         lax_dome=dome_crawl,
                         slew_while_changing_filter=slew_while_changing_filter,
+                        constant_band_changetime=False,
                         update_tracking=True,
                     )
                     if isinstance(slewtime, float):
-                        model_slewtimes[visitid] = slewtime
+                        model_slewtimes[visitid] = max(slewtime, min_overhead)
                     else:
-                        model_slewtimes[visitid] = slewtime[0]
+                        model_slewtimes[visitid] = max(slewtime[0], min_overhead)
 
-                    kinematic_model_ideal.overhead = kinematic_model_ideal.readtime
                     slewtime = kinematic_model_ideal.slew_times(
                         ra_rad,
                         dec_rad,
@@ -334,12 +338,13 @@ def add_model_slew_times(
                         bandname=band,
                         lax_dome=True,
                         slew_while_changing_filter=slew_while_changing_filter,
+                        constant_band_changetime=False,
                         update_tracking=True,
                     )
                     if isinstance(slewtime, float):
-                        model_slewtimes_ideal[visitid] = slewtime
+                        model_slewtimes_ideal[visitid] = max(slewtime, min_overhead)
                     else:
-                        model_slewtimes_ideal[visitid] = slewtime[0]
+                        model_slewtimes_ideal[visitid] = max(slewtime[0], min_overhead)
 
     slewing = pd.DataFrame(
         [model_slewtimes, model_slewtimes_ideal], index=["slew_model", "slew_model_ideal"]
