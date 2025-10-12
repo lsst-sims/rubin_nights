@@ -7,13 +7,13 @@ import rubin_nights.plot_utils as rn_plots
 
 
 class TestUtils(unittest.TestCase):
-    def test_day_obs_basic(self):
+    def test_day_obs_basic(self) -> None:
         day_obs_int = 20250503
         day_obs_str = "2025-05-03"
         self.assertEqual(rn_dayobs.day_obs_int_to_str(day_obs_int), day_obs_str)
         self.assertEqual(rn_dayobs.day_obs_str_to_int(day_obs_str), day_obs_int)
 
-    def test_day_obs_time(self):
+    def test_day_obs_time(self) -> None:
         # Did day_obs_now return YYYY-MM-DD day_obs
         today = rn_dayobs.today_day_obs()
         self.assertTrue(isinstance(today, str))
@@ -49,7 +49,7 @@ class TestUtils(unittest.TestCase):
         self.assertTrue(sunset.mjd < expected_sunset)
         self.assertTrue(sunrise.mjd > expected_sunrise)
 
-    def test_plot_styles(self):
+    def test_plot_styles(self) -> None:
         # Just test we get a dictionary with at least a band-color key
         band_colors = rn_plots.PlotStyles().band_colors
         self.assertTrue(

@@ -30,9 +30,9 @@ __all__ = [
 
 
 def queue_from_script_salindex(x: pd.Series) -> int:
-    """Return the salIndex of the queue, based on the script salIndex.
-    """
+    """Return the salIndex of the queue, based on the script salIndex."""
     return int(str(x.script_salIndex)[0])
+
 
 def make_datetime(x: pd.Series, column: str) -> str:
     """Change a timestamp in TAI format to UTC datetime format.

@@ -6,7 +6,6 @@ from astropy.time import Time
 
 from .influx_query import InfluxQueryClient, day_obs_from_efd_index
 
-
 __all__ = ["get_dome_open_close", "mtm1m3_slewflag_times", "get_rotator_limits", "get_tma_limits"]
 
 logger = logging.getLogger(__name__)
