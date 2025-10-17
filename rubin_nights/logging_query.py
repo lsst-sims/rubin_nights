@@ -361,14 +361,14 @@ class ExposureLogClient(LoggingServiceClient):
         super().__init__(url=url, auth=auth, results_as_dataframe=True)
 
     def query_log(self, t_start: Time, t_end: Time, user_params: dict | None = None) -> pd.DataFrame:
-        """Get exposure log entries over a specified timespan.
+        """Get exposure log message entries over a specified timespan.
 
         Parameters
         ----------
         t_start
-            Time of start of narrative log query.
+            Time of start of exposure log query.
         t_end
-            Time of end of narrative log query.
+            Time of end of exposure log query.
         user_params
             Additional parameters to add or override defaults.
             Passing `{'limit': int}` can override the default limit.
