@@ -35,7 +35,7 @@ rubin = [
     "healpy",
     "lsst-resources",
     "psycopg",
-    "rubin-scheduler",
+    "rubin-scheduler>=3.18",
     "rubin-sim",
     "sqlalchemy",
     #"ts_xml@git+https://github.com/lsst-ts/ts_xml.git"
