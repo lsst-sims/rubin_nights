@@ -915,7 +915,9 @@ def get_exposure_info(
     return image_acquisition
 
 
-def get_consolidated_messages(t_start: Time, t_end: Time, endpoints: dict, all_tracebacks: bool=False) -> tuple[pd.DataFrame, list[str]]:
+def get_consolidated_messages(
+    t_start: Time, t_end: Time, endpoints: dict, all_tracebacks: bool = False
+) -> tuple[pd.DataFrame, list[str]]:
     """Get consolidated messages from EFD ScriptQueue, errorCodes,
     CCCamera, exposure and narrative logs.
 
