@@ -915,7 +915,7 @@ def get_exposure_info(
     return image_acquisition
 
 
-def get_consolidated_messages(t_start: Time, t_end: Time, endpoints: dict) -> tuple[pd.DataFrame, list[str]]:
+def get_consolidated_messages(t_start: Time, t_end: Time, endpoints: dict, all_tracebacks: bool=False) -> tuple[pd.DataFrame, list[str]]:
     """Get consolidated messages from EFD ScriptQueue, errorCodes,
     CCCamera, exposure and narrative logs.
 
@@ -930,6 +930,8 @@ def get_consolidated_messages(t_start: Time, t_end: Time, endpoints: dict) -> tu
         ConsDb, such as returned by `rubin_nights.connections.get_clients`.
         Must have clients for the `efd`, `obsenv`, `narrative_log` and
         `exposure_log`.
+    all_tracebacks
+        If True, get all tracebacks, else get only scriptqueue tracebacks.
 
     Returns
     -------
@@ -962,7 +964,10 @@ def get_consolidated_messages(t_start: Time, t_end: Time, endpoints: dict) -> tu
     # 'salIndex', 'blockId', 'finalScriptState', 'scriptState',
     # 'timestampProcessStart', 'timestampConfigureEnd',
     # 'timestampRunStart', 'timestampProcessEnd']
-    tracebacks = get_scriptqueue_tracebacks(t_start, t_end, endpoints["efd"])
+    if all_tracebacks:
+        tracebacks = get_all_tracebacks(t_start, t_end, endpoints["efd"])
+    else:
+        tracebacks = get_scriptqueue_tracebacks(t_start, t_end, endpoints["efd"])
     scheduler_configs = get_scheduler_configs(t_start, t_end, endpoints["efd"], endpoints["obsenv"])
     script_status = pd.concat([scheduler_configs, script_status, tracebacks])
     script_status.rename({"classname": "name", "finalScriptState": "finalStatus"}, axis=1, inplace=True)
