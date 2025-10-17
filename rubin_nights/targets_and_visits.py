@@ -113,15 +113,23 @@ def targets_and_visits(
     topic = "lsst.sal.Scheduler.logevent_summaryState"
     fields = ["summaryState"]
     dd = endpoints["efd"].select_time_series(topic, fields, t_start, t_end, index=queue_index)
-    # Identify re-enable times
-    restarts = dd.query("summaryState == @enabled_state")
+    if len(dd) > 0:
+        # Identify re-enable times
+        restarts = dd.query("summaryState == @enabled_state")
+        # Split targets up into sections.
+        target_idxs = np.searchsorted(targets.index.values, restarts.index.values)
+        target_idx_start = np.concatenate([np.array([0]), target_idxs])
+        target_idx_end = np.concatenate([target_idxs, np.array([len(targets)])])
+        obs_idxs = np.searchsorted(observations.index.values, restarts.index.values)
+        obs_idx_start = np.concatenate([np.array([0]), obs_idxs])
+        obs_idx_end = np.concatenate([obs_idxs, np.array([len(observations)])])
+    else:
+        # There were no restarts of the queue.
+        target_idx_start = np.array([0])
+        target_idx_end = np.array([len(targets)])
+        obs_idx_start = np.array([0])
+        obs_idx_end = np.array([len(observations)])
 
-    target_idxs = np.searchsorted(targets.index.values, restarts.index.values)
-    target_idx_start = np.concatenate([np.array([0]), target_idxs])
-    target_idx_end = np.concatenate([target_idxs, np.array([len(targets)])])
-    obs_idxs = np.searchsorted(observations.index.values, restarts.index.values)
-    obs_idx_start = np.concatenate([np.array([0]), obs_idxs])
-    obs_idx_end = np.concatenate([obs_idxs, np.array([len(targets)])])
     to = []
     for i in range(len(target_idx_start)):
         t_targets = targets.iloc[target_idx_start[i] : target_idx_end[i]]
