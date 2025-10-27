@@ -51,11 +51,10 @@ def get_scheduler_configs(
 ) -> pd.DataFrame:
     """Return information needed to recreate FBS configuration.
 
-    This requires checking the obsenv (`lsst.obsenv.summary`)
-    to find the version of ts_config_ocs in use,
+    This requires checking
     the EFD (`lsst.sal.Scheduler.logevent_dependenciesVersions`)
     to find the version of rubin_scheduler and dependencies,
-    and the EFD (`lsst.sal.Scheduler.logevent_configureApplied`)
+    and the EFD (`lsst.sal.Scheduler.logevent_configurationApplied`)
     to find the specific FBS configuration file in use.
 
     Searches both the time within t_start to t_end, as well as the last

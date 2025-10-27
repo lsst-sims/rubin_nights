@@ -39,7 +39,7 @@ def augment_visits(
         cdb_{instrument}.visit1_quicklook (if available).
     instrument
         The instrument for the visits.
-        Used to calculate the approproximate rotTelPos value.
+        Used to calculate the approximate rotTelPos value.
     skip_rs_columns
         Skip calculation of any columns that require rubin_scheduler
         or rubin_sim, even if those packages are installed.

@@ -1,4 +1,5 @@
 import logging
+from functools import cache
 
 import httpx
 import numpy as np
@@ -31,23 +32,31 @@ class InfluxQueryClient:
     results_as_dataframe
         If True, convert query results into a pandas DataFrame.
         If False, results are returned as a list of dictionaries.
+    query_timeout
+        Time (in seconds) to wait for query to return.
     """
 
     def __init__(
         self,
         site: str = "usdf",
         db_name: str = "efd",
-        query_timeout: float = 5 * 60,
         results_as_dataframe: bool = True,
+        query_timeout: float = 5 * 60,
     ) -> None:
+        # sasquatch (special case)
         if site == "usdf-dev":
             site = "usdf"
         self.site = site + "_efd"
-        self.url, auth = self._fetch_credentials()
         self.db_name = db_name
         self.results_as_dataframe = results_as_dataframe
+        if self.results_as_dataframe:
+            self.null_result = pd.DataFrame([])
+        else:
+            self.null_result = []
+        self.url, auth = self._fetch_credentials()
         timeout = httpx.Timeout(query_timeout, connect=10.0)
         self.httpx_client = httpx.Client(base_url=self.url, timeout=timeout, auth=auth)
+        self.async_client = httpx.AsyncClient(base_url=self.url, timeout=timeout, auth=auth)
 
     def _fetch_credentials(self) -> tuple[str, tuple[str, bytes]]:
         creds_service = f"https://roundtable.lsst.codes/segwarides/creds/{self.site}"
@@ -64,33 +73,6 @@ class InfluxQueryClient:
 
     def __repr__(self) -> str:
         return f"{self.db_name} at {self.url}"
-
-    def query(self, query: str) -> dict | pd.DataFrame:
-        """Send a query to the InfluxDB API."""
-        params = {"db": self.db_name, "q": query}
-        try:
-            response = self.httpx_client.get(
-                "/query",
-                params=params,
-            )
-            response.raise_for_status()
-        except Exception as e:
-            logger.warning(e)
-            response = None
-
-        if response:
-            if self.results_as_dataframe:
-                result = self._to_dataframe(response.json())
-            else:
-                result = response.json()
-        else:
-            result = []
-            if self.results_as_dataframe:
-                result = pd.DataFrame(result)
-        if len(result) == 0:
-            logging.debug(f"Query {query} produced no results.")
-
-        return result
 
     def _to_dataframe(self, response: dict) -> pd.DataFrame:
         """Convert an InfluxDB response to a dataframe.
@@ -119,27 +101,6 @@ class InfluxQueryClient:
         if "name" in series:
             result.name = series["name"]
         return result
-
-    def get_topics(self) -> list[str]:
-        """Find all available topics."""
-        topics = self.query("show measurements")["name"].to_list()
-        return topics
-
-    def get_fields(self, measurement: str) -> pd.DataFrame:
-        """Query the list of field names for a topic.
-
-        Parameters
-        ----------
-        measurement
-            Name of measurement/topic to query for field names.
-
-        Returns
-        -------
-        fields : `pd.DataFrame`
-            DataFrame with fieldKey / fieldType columns.
-        """
-        query = f'show field keys from "{measurement}"'
-        return self.query(query)
 
     @staticmethod
     def build_influxdb_query(
@@ -240,14 +201,129 @@ class InfluxQueryClient:
 
         return query
 
-    def select_time_series(
+    def query(self, query: str) -> dict | pd.DataFrame:
+        """Send a synchronous query to the InfluxDB API."""
+        params = {"db": self.db_name, "q": query}
+        try:
+            response = self.httpx_client.get(
+                "/query",
+                params=params,
+            )
+            response.raise_for_status()
+        except Exception as e:
+            logger.warning(e)
+            response = None
+
+        if response:
+            if self.results_as_dataframe:
+                result = self._to_dataframe(response.json())
+            else:
+                result = response.json()
+        else:
+            result = []
+            if self.results_as_dataframe:
+                result = pd.DataFrame(result)
+        if len(result) == 0:
+            logging.debug(f"Query {params['q']} produced no results.")
+
+        return result
+
+    async def async_query(self, query: str) -> dict | pd.DataFrame:
+        """Send an asynchronous query to the InfluxDB API."""
+        params = {"db": self.db_name, "q": query}
+        try:
+            response = await self.async_client.get(
+                "/query",
+                params=params,
+            )
+            response.raise_for_status()
+        except Exception as e:
+            logger.warning(e)
+            response = None
+
+        if response:
+            if self.results_as_dataframe:
+                result = self._to_dataframe(response.json())
+            else:
+                result = response.json()
+        else:
+            result = []
+            if self.results_as_dataframe:
+                result = pd.DataFrame(result)
+        if len(result) == 0:
+            logging.debug(f"Query {params['q']} produced no results.")
+
+        return result
+
+    @cache
+    def get_topics(self) -> list[str]:
+        """Find all available topics."""
+        # Just use sync query. It runs once.
+        r = self.query("show measurements")
+        self.topics = list(r["name"].values)
+        return self.topics
+
+    def get_fields(self, measurement: str) -> pd.DataFrame:
+        """Query the list of field names for a topic.
+
+        Parameters
+        ----------
+        measurement
+            Name of measurement/topic to query for field names.
+
+        Returns
+        -------
+        fields : `pd.DataFrame`
+            DataFrame with fieldKey / fieldType columns.
+        """
+        query = f'show field keys from "{measurement}"'
+        return self.query(query)
+
+    async def async_get_fields(self, measurement: str) -> pd.DataFrame:
+        """Query the list of field names for a topic.
+
+        Parameters
+        ----------
+        measurement
+            Name of measurement/topic to query for field names.
+
+        Returns
+        -------
+        fields : `pd.DataFrame`
+            DataFrame with fieldKey / fieldType columns.
+        """
+        query = f'show field keys from "{measurement}"'
+        return await self.async_query(query)
+
+    def _time_series_query(
         self,
         topic_name: str,
         fields: str | list[str],
         t_start: Time,
         t_end: Time,
         index: int | None = None,
-    ) -> pd.DataFrame:
+    ) -> str:
+        """Return data from `topic_name` between `t_start` and `t_end`.
+
+        Parameters
+        ----------
+        topic_name
+            The name of the topic or measurement to query.
+        fields
+            The field or fields to return from topic_name.
+            The entry '*' will return all fields.
+        t_start
+            The start of the time window for the query.
+        t_end
+            The end of the time window for the query.
+
+        Returns
+        -------
+        query: `str`
+        """
+        if topic_name not in self.get_topics():
+            logger.error(f"{topic_name} not in {self.db_name} topics.")
+            return self.null_result
         if index:
             filters = [("salIndex", str(index))]
         else:
@@ -255,7 +331,109 @@ class InfluxQueryClient:
         query = self.build_influxdb_query(
             topic_name, fields=fields, time_range=(t_start, t_end), filters=filters
         )
+        return query
+
+    def select_time_series(
+        self,
+        topic_name: str,
+        fields: str | list[str],
+        t_start: Time,
+        t_end: Time,
+        index: int | None = None,
+    ) -> pd.DataFrame | list[dict]:
+        """Return data from `topic_name` between `t_start` and `t_end`.
+
+        Parameters
+        ----------
+        topic_name
+            The name of the topic or measurement to query.
+        fields
+            The field or fields to return from topic_name.
+            The entry '*' will return all fields.
+        t_start
+            The start of the time window for the query.
+        t_end
+            The end of the time window for the query.
+
+        Returns
+        -------
+        query_results: `pd.DataFrame` or `list` [ `dict` ]
+            The result of the query.
+        """
+        query = self._time_series_query(
+            topic_name=topic_name, fields=fields, t_start=t_start, t_end=t_end, index=index
+        )
         return self.query(query)
+
+    async def async_select_time_series(
+        self,
+        topic_name: str,
+        fields: str | list[str],
+        t_start: Time,
+        t_end: Time,
+        index: int | None = None,
+    ) -> pd.DataFrame | list[dict]:
+        """Return data from `topic_name` between `t_start` and `t_end`.
+
+        Parameters
+        ----------
+        topic_name
+            The name of the topic or measurement to query.
+        fields
+            The field or fields to return from topic_name.
+            The entry '*' will return all fields.
+        t_start
+            The start of the time window for the query.
+        t_end
+            The end of the time window for the query.
+
+        Returns
+        -------
+        query_results: `pd.DataFrame` or `list` [ `dict` ]
+            The result of the query.
+        """
+        query = self._time_series_query(
+            topic_name=topic_name, fields=fields, t_start=t_start, t_end=t_end, index=index
+        )
+        return await self.async_query(query)
+
+    def _top_n_query(
+        self,
+        topic_name: str,
+        fields: str | list[str],
+        num: int,
+        time_cut: Time = None,
+        index: int | None = None,
+    ) -> str:
+        """Return data from `topic_name` between `t_start` and `t_end`.
+
+        Parameters
+        ----------
+        topic_name
+            The name of the topic or measurement to query.
+        fields
+            The field or fields to return from topic_name.
+            The entry '*' will return all fields.
+        num
+            The number of records to return.
+        time_cut
+            If not None, looks for records prior to this time.
+
+        Returns
+        -------
+        query: `str`
+        """
+        if topic_name not in self.get_topics():
+            logger.error(f"{topic_name} not in {self.db_name} topics.")
+            return self.null_result
+        if index:
+            filters = [("salIndex", str(index))]
+        else:
+            filters = None
+        query = self.build_influxdb_top_n_query(
+            topic_name, fields=fields, num=num, time_cut=time_cut, filters=filters
+        )
+        return query
 
     def select_top_n(
         self,
@@ -264,12 +442,59 @@ class InfluxQueryClient:
         num: int,
         time_cut: Time = None,
         index: int | None = None,
-    ) -> pd.DataFrame:
-        if index:
-            filters = [("salIndex", str(index))]
-        else:
-            filters = None
-        query = self.build_influxdb_top_n_query(
-            topic_name, fields=fields, num=num, time_cut=time_cut, filters=filters
+    ) -> pd.DataFrame | list[dict]:
+        """Return data from `topic_name` between `t_start` and `t_end`.
+
+        Parameters
+        ----------
+        topic_name
+            The name of the topic or measurement to query.
+        fields
+            The field or fields to return from topic_name.
+            The entry '*' will return all fields.
+        num
+            The number of records to return.
+        time_cut
+            If not None, looks for records prior to this time.
+
+        Returns
+        -------
+        query_results: `pd.DataFrame` or `list` [ `dict` ]
+            The result of the query.
+        """
+        query = self._top_n_query(
+            topic_name=topic_name, fields=fields, num=num, time_cut=time_cut, index=index
         )
         return self.query(query)
+
+    async def async_select_top_n(
+        self,
+        topic_name: str,
+        fields: str | list[str],
+        num: int,
+        time_cut: Time = None,
+        index: int | None = None,
+    ) -> pd.DataFrame | list[dict]:
+        """Return data from `topic_name` between `t_start` and `t_end`.
+
+        Parameters
+        ----------
+        topic_name
+            The name of the topic or measurement to query.
+        fields
+            The field or fields to return from topic_name.
+            The entry '*' will return all fields.
+        num
+            The number of records to return.
+        time_cut
+            If not None, looks for records prior to this time.
+
+        Returns
+        -------
+        query_results: `pd.DataFrame` or `list` [ `dict` ]
+            The result of the query.
+        """
+        query = self._top_n_query(
+            topic_name=topic_name, fields=fields, num=num, time_cut=time_cut, index=index
+        )
+        return await self.async_query(query)

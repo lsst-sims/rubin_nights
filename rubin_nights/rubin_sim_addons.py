@@ -12,6 +12,8 @@ try:
 except ModuleNotFoundError:
     HAS_RUBIN_SIM = False
 
+SURVEY_START = Time("2025-11-01T12:00:00", scale="tai")
+
 __all__ = ["add_rubin_sim_cols", "consdb_to_opsim"]
 
 logger = logging.getLogger(__name__)
@@ -238,7 +240,7 @@ def consdb_to_opsim(consdb_visits: pd.DataFrame) -> pd.DataFrame | None:
     opsim_visits["night"] = np.floor(
         (
             Time(opsim_visits["observationStartMJD"], format="mjd", scale="tai")
-            - Time("2025-06-20T12:00:00", scale="tai")
+            - SURVEY_START
         ).jd
     )
 
