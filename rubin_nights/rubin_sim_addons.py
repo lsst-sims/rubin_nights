@@ -193,6 +193,8 @@ def consdb_to_opsim(consdb_visits: pd.DataFrame) -> pd.DataFrame | None:
         "s_dec": "fieldDec",
         "sky_rotation": "rotSkyPos",
         "obs_start_mjd": "observationStartMJD",
+        "lst": "observationStartLST",
+        "approx_parallactic": "paraAngle",
         "exp_time": "visitExposureTime",
         "dark_time": "visitTime",
         "sky_bg_median_mag": "skyBrightness",

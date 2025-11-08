@@ -17,7 +17,6 @@ try:
         angular_separation,
         approx_altaz2pa,
         approx_ra_dec2_alt_az,
-        rotation_converter,
     )
 
     HAS_RUBIN_SCHEDULER = True
@@ -136,8 +135,7 @@ def add_rubin_scheduler_cols(
     new_cols = [
         "lst",
         "HA",
-        "approx_pa",
-        "approx_rotTelPos",
+        "approx_parallactic",
         "moon_alt",
         "moon_az",
         "moon_RA",
@@ -179,25 +177,20 @@ def add_rubin_scheduler_cols(
     )
     new_df["moon_illum"] = almanac.get_sun_moon_positions(visits["exp_midpt_mjd"].values)["moon_phase"]
 
-    alt, az = approx_ra_dec2_alt_az(
-        visits.s_ra.values,
-        visits.s_dec.values,
-        lsst_loc.latitude,
-        lsst_loc.longitude,
-        visits.exp_midpt_mjd.values,
-        lmst=None,
-    )
+    if "altitude" in visits and "azimuth" in visits:
+        alt = visits.altitude
+        az = visits.azimuth
+    else:
+        alt, az = approx_ra_dec2_alt_az(
+            visits.s_ra.values,
+            visits.s_dec.values,
+            lsst_loc.latitude,
+            lsst_loc.longitude,
+            visits.exp_midpt_mjd.values,
+            lmst=None,
+        )
     pa = approx_altaz2pa(alt, az, lsst_loc.latitude)
-    new_df["approx_pa"] = pa
-
-    if instrument.lower() != "latiss":
-        if instrument.lower() == "lsstcomcam":
-            tele = "comcam"
-        else:
-            tele = "rubin"
-        rc = rotation_converter(telescope=tele)
-        rotTelPos = rc.rotskypos2rottelpos(visits.sky_rotation.values, new_df["approx_pa"].values)
-        new_df["approx_rotTelPos"] = rotTelPos
+    new_df["approx_parallactic"] = pa
 
     visits = visits.merge(new_df, right_index=True, left_index=True)
     return visits
