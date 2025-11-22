@@ -155,6 +155,8 @@ def get_clients(
         location = os.getenv("EXTERNAL_INSTANCE_URL", "")
         if "summit-lsp" in location:
             site = "summit"
+        elif "base-lsp" in location:
+            site = "base"
         elif "usdf-rsp-dev" in location:
             site = "usdf-dev"
         elif "usdf-rsp" in location:
@@ -178,7 +180,8 @@ def get_clients(
     consdb_tap = ConsDbTap(api_base, token=token)
     efd_client = InfluxQueryClient(site, db_name="efd")
     obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv")
-    sasquatch_client = InfluxQueryClient("usdfdev", db_name="lsst.dm")
+    too_client = InfluxQueryClient("summit", db_name="lsst.scimma")
+    dm_client = InfluxQueryClient("usdfdev", db_name="lsst.dm")
 
     # Be extra helpful with environment variables if using USDF for LFA
     if "usdf" in site:
@@ -195,7 +198,8 @@ def get_clients(
         "api_base": api_base,
         "efd": efd_client,
         "obsenv": obsenv_client,
-        "sasquatch": sasquatch_client,
+        "too": too_client,
+        "dm": dm_client,
         "consdb": consdb_query,
         "consdb_tap": consdb_tap,
         "narrative_log": narrative_log,
