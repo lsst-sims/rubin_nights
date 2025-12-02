@@ -7,7 +7,7 @@ from astropy.time import Time, TimeDelta
 
 from .influx_query import InfluxQueryClient
 from .logging_query import ExposureLogClient, NarrativeLogClient
-from .ts_xml_enums import CSCState, SalIndex, SalIndexExtended, ScriptState, apply_enum
+from .ts_xml_enums import CategoryIndexExtended, CSCState, SalIndex, ScriptState, apply_enum
 
 # To generate a tiny gap in time
 EPS_TIME = np.timedelta64(1, "ms")
@@ -85,22 +85,56 @@ def get_scheduler_configs(
         Some columns are compacted into single strings, so
         the entire dataframe can fit into a limited set of columns.
     """
-    # The configurationApplied should happen with every scheduler update
-    # We have to find this time first, because we need to then use *this*
-    # to find the previously enabled obsenv
+    # The configurationApplied should happen with every scheduler Enable
     topic = "lsst.sal.Scheduler.logevent_configurationApplied"
     fields = ["SchedulerId", "configurations", "salIndex", "schemaVersion", "url", "version"]
     conf_start = efd_client.select_top_n(topic, fields, num=1, time_cut=t_start, index=queue_index)
     conf = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue_index)
     conf = pd.concat([conf_start, conf])
+    if len(conf) > 0:
+
+        def strip_repo(x: pd.Series) -> pd.Series:
+            return x.url.split("/")[-3]
+
+        def strip_version(x: pd.Series) -> pd.Series:
+            return x.version.replace("heads/", "")
+
+        def strip_yaml(x: pd.Series) -> pd.Series:
+            return x.configurations.split(",")[-1]
+
+        config_repo = conf.apply(strip_repo, axis=1)
+        config_version = conf.apply(strip_version, axis=1)
+        config_yaml = conf.apply(strip_yaml, axis=1)
+        configs = pd.DataFrame(
+            [config_repo, config_version, config_yaml],
+            columns=conf.index,
+            index=["config_repo", "config_commit", "config_yaml"],
+        ).T
+        conf = pd.merge(conf, configs, left_index=True, right_index=True)
     if len(conf) == 0:
         logger.warning("Could not find scheduler configuration.")
         bad_conf = [t_start.utc.datetime] + ["unknown" for f in fields]
-        conf = pd.DataFrame(bad_conf, columns=["time"] + fields)
+        conf = pd.DataFrame(
+            bad_conf,
+            columns=["time"] + fields + ["config_repo", "config_commit", "config_yaml"],
+        )
         conf.set_index("time", inplace=True)
         conf.index = conf.index.tz_localize("UTC")
+    conf["classname"] = "Scheduler configuration"
 
-    # First find the obsenv to find the version of ts_config_ocs
+    def build_link_to_config(x: pd.Series) -> str:
+        desc_string = f"{x.config_yaml}  <br> {x.config_repo} {x.config_commit}"
+        link = (
+            f"https://github.com/lsst-ts/{x.config_repo}/tree/{x.config_commit}/Scheduler/v8/{x.config_yaml}"
+        )
+        url = f'<a href="{link}" target="_blank" rel="noreferrer noopener">{desc_string}</a>'
+        return url
+
+    conf["description"] = conf.apply(build_link_to_config, axis=1)
+    conf.rename({"configurations": "config"}, axis=1, inplace=True)
+    conf["script_salIndex"] = -1
+
+    # Also find the obsenv
     topic = "lsst.obsenv.summary"
     fields = ["summit_extras", "summit_utils", "ts_standardscripts", "ts_externalscripts", "ts_config_ocs"]
     obsenv_start = obsenv_client.select_top_n(topic, fields, num=1, time_cut=Time(conf.index[0]))
@@ -137,8 +171,7 @@ def get_scheduler_configs(
         + obsenv["summit_extras"]
     )
     # The obsenv is shared across all scriptqueues.
-    # The salIndex has to apply to all.
-    obsenv["salIndex"] = SalIndexExtended.AUTOLOG_OTHER.value
+    obsenv["salIndex"] = CategoryIndexExtended.AUTOLOG_OTHER.value
     obsenv["script_salIndex"] = -1
 
     # Scheduler dependency information - updated independently of obsenv.
@@ -185,28 +218,6 @@ def get_scheduler_configs(
 
     deps["config"] = deps.apply(build_compact_config_string, args=[models], axis=1)
     deps["script_salIndex"] = -1
-
-    conf["classname"] = "Scheduler configuration"
-    # To get the scheduler relevant info in a single line,
-    # pull in ts_config_ocs to the configuration information.
-    ts_config_ocs_in_place = []
-    for time in conf.index:
-        prev_obsenv = obsenv.query("index <= @time")
-        if len(prev_obsenv) == 0:
-            ts_config_ocs_in_place.append("Unknown")
-        else:
-            ts_config_ocs_in_place.append(prev_obsenv.iloc[-1]["ts_config_ocs"])
-    conf["ts_config_ocs"] = ts_config_ocs_in_place
-
-    def build_link_to_config(x: pd.Series) -> str:
-        desc_string = x.configurations.split(",")[-1] + "<br> ts_config_ocs " + x.ts_config_ocs
-        link = f"https://github.com/lsst-ts/ts_config_ocs/tree/{x.ts_config_ocs}/Scheduler/feature_scheduler"
-        url = f'<a href="{link}" target="_blank" rel="noreferrer noopener">{desc_string}</a>'
-        return url
-
-    conf["description"] = conf.apply(build_link_to_config, axis=1)
-    conf.rename({"configurations": "config"}, axis=1, inplace=True)
-    conf["script_salIndex"] = -1
 
     # Combine results
     sched_config = pd.concat([deps, conf, obsenv])
@@ -347,8 +358,8 @@ def get_script_state(
                 "finalScriptState": "max",
                 "scriptState": "unique",
                 "processState": "unique",
-                "timestampProcessStart": "min",
-                "timestampConfigureStart": "min",
+                "timestampProcessStart": "max",
+                "timestampConfigureStart": "max",
                 "timestampConfigureEnd": "max",
                 "timestampRunStart": "max",
                 "timestampProcessEnd": "max",
@@ -534,71 +545,6 @@ def get_script_status(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
     return script_status
 
 
-def get_error_codes(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
-    """Get all messages from logevent_errorCode topics.
-
-    Parameters
-    ----------
-    t_start
-        The time to start searching for script events.
-    t_end
-        The time at which to end searching for script events.
-    efd_client
-        EfdClient to query the efd.
-
-    Returns
-    -------
-    error_messages : `pd.DataFrame`
-    """
-    # Get error codes
-    topics = efd_client.get_topics()
-    err_codes = [t for t in topics if "errorCode" in t]
-
-    errs = []
-    for topic in err_codes:
-        df = efd_client.select_time_series(topic, ["errorCode", "errorReport"], t_start, t_end)
-        if len(df) > 0:
-            df["topic"] = topic
-            errs += [df]
-    if len(errs) > 0:
-        errs = pd.concat(errs).sort_index()
-
-        def strip_csc(x: pd.Series) -> str:
-            return (
-                x.topic.replace("lsst.sal", "").replace("logevent_errorCode", "").replace(".", "")
-                + " CSC error"
-            )
-
-        errs["component"] = errs.apply(strip_csc, axis=1)
-        # Rename some columns to match narrative log columns
-        errs.rename(
-            {"errorCode": "error_code", "errorReport": "message_text", "topic": "origin"},
-            axis=1,
-            inplace=True,
-        )
-        # Add a salindex so we can color-code based on this as a "source"
-        errs["salIndex"] = SalIndexExtended.ERRORS.value
-        errs["finalStatus"] = "ERR"
-        errs["timestampProcessStart"] = errs.index.values.copy()
-    else:
-        # Make an empty dataframe.
-        errs = pd.DataFrame(
-            [],
-            columns=[
-                "component",
-                "error_code",
-                "message_text",
-                "origin",
-                "salIndex",
-                "finalStatus",
-                "timestampProcessStart",
-            ],
-        )
-
-    logger.info(f"Found {len(errs)} error messages")
-    return errs
-
-
 def get_scriptqueue_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
     """Find tracebacks in lsst.sal.Script.logevent_logMessage.
 
@@ -661,56 +607,45 @@ def get_all_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQueryClient
         DataFrame containing tracebacks.
     """
     topics = efd_client.get_topics()
-    log_topics = [t for t in topics if "logMessage" in t]
-    tracebacks = []
+    log_topics = [t for t in topics if "logMessage" in t and t != "lsst.sal.Script.logevent_logMessage"]
+    tracebacks: list[pd.DataFrame] = []
     for topic in log_topics:
         csc = topic.split(".")[-2]
         query = f'select * from "{topic}"'
         query += f"where time >= '{t_start.isot}Z' and time <= '{t_end.isot}Z' and traceback != ''"
         traceback_messages: pd.DataFrame = efd_client.query(query)
-        # Then check if there are any *traceback* messages to query.
+        # Try to guess a good index for this CSC
+        if csc.startswith("MT") or csc.endswith(":1"):
+            category_index = CategoryIndexExtended.ERRORS_SIMONYI.value
+        elif csc.startswith("AT") or csc.endswith(":2"):
+            category_index = CategoryIndexExtended.ERRORS_AUX.value
+        else:
+            category_index = CategoryIndexExtended.ERRORS_OTHER.value
+
         if len(traceback_messages) > 0:
+            traceback_messages.rename({"name": "topic"}, axis=1, inplace=True)
+            traceback_messages["category_index"] = category_index
+            traceback_messages["config"] = f"{csc} traceback"
 
-            if "salIndex" not in traceback_messages.columns:
-                if csc.startswith("AT"):
-                    traceback_messages["salIndex"] = 2
-                else:
-                    traceback_messages["salIndex"] = 1
+        tracebacks.append(traceback_messages)
 
-            traceback_messages.rename({"salIndex": "script_salIndex"}, axis=1, inplace=True)
-
-            # Add salIndex of queue where the script was run
-            traceback_messages["salIndex"] = traceback_messages.apply(queue_from_script_salindex, axis=1)
-
-            def make_config_message(x: pd.Series, csc: str) -> str:
-                if (x.script_salIndex) > 3:
-                    message = f"{csc} traceback for {x.script_salIndex}"
-                else:
-                    message = f"{csc} traceback"
-                return message
-
-            traceback_messages["config"] = traceback_messages.apply(
-                make_config_message,
-                args=[
-                    csc,
-                ],
-                axis=1,
-            )
-            tracebacks.append(traceback_messages)
     # Combine all the tracebacks and add some columns.
     traceback_messages = pd.concat(tracebacks).sort_index()
-    traceback_messages["finalScriptState"] = "Traceback"
-    traceback_messages["timestampProcessStart"] = (
-        traceback_messages.index.copy().tz_localize(None).astype("datetime64[ns]")
-    )
+    if len(traceback_messages) > 0:
+        traceback_messages["finalScriptState"] = "Traceback"
+        traceback_messages["script_salIndex"] = -1
+        traceback_messages["timestampProcessStart"] = (
+            traceback_messages.index.copy().tz_localize(None).astype("datetime64[ns]")
+        )
     # Going to rename some of these columns here to slot into scriptqueue
-    traceback_messages.rename({"traceback": "description", "message": "classname"}, axis=1, inplace=True)
+    traceback_messages.rename({"traceback": "description", "message": "name"}, axis=1, inplace=True)
 
     cols_back = [
-        "classname",
+        "name",
+        "topic",
         "description",
         "script_salIndex",
-        "salIndex",
+        "category_index",
         "config",
         "finalScriptState",
         "timestampProcessStart",
@@ -718,8 +653,71 @@ def get_all_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQueryClient
     return traceback_messages[cols_back]
 
 
+def get_error_codes(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
+    """Get all messages from logevent_errorCode topics.
+
+    Parameters
+    ----------
+    t_start
+        The time to start searching for script events.
+    t_end
+        The time at which to end searching for script events.
+    efd_client
+        EfdClient to query the efd.
+
+    Returns
+    -------
+    error_messages : `pd.DataFrame`
+    """
+    # Get error codes
+    topics = efd_client.get_topics()
+    err_codes = [t for t in topics if "errorCode" in t]
+
+    errs = []
+    for topic in err_codes:
+        df = efd_client.select_time_series(topic, ["errorCode", "errorReport"], t_start, t_end)
+        csc = topic.replace("lsst.sal", "").replace("logevent_errorCode", "").replace(".", "")
+        # Try to guess a good index for this CSC
+        if csc.startswith("MT") or csc.endswith(":1"):
+            category_index = CategoryIndexExtended.ERRORS_SIMONYI.value
+        elif csc.startswith("AT") or csc.endswith(":2"):
+            category_index = CategoryIndexExtended.ERRORS_AUX.value
+        else:
+            category_index = CategoryIndexExtended.ERRORS_OTHER
+        if len(df) > 0:
+            df["config"] = topic
+            df["name"] = csc
+            df["category_index"] = category_index
+            df["finalStatus"] = "ERR"
+            errs += [df]
+    if len(errs) > 0:
+        errs = pd.concat(errs).sort_index()
+        errs["timestampProcessStart"] = errs.index.values.copy()
+
+    else:
+        # Make an empty dataframe.
+        errs = pd.DataFrame(
+            [],
+            columns=[
+                "name",
+                "errorReport",
+                "config",
+                "category_index",
+                "errorCode" "finalStatus",
+                "timestampProcessStart",
+            ],
+        )
+
+    logger.info(f"Found {len(errs)} error messages")
+    return errs
+
+
 def get_narrative_and_errors(
-    t_start: Time, t_end: Time, efd_client: InfluxQueryClient, narrative_log_client: NarrativeLogClient
+    t_start: Time,
+    t_end: Time,
+    efd_client: InfluxQueryClient,
+    narrative_log_client: NarrativeLogClient,
+    all_tracebacks: bool = True,
 ) -> pd.DataFrame:
     """Get narrative log and error code messages.
 
@@ -731,38 +729,61 @@ def get_narrative_and_errors(
         The time at which to end searching for script events.
     efd_client
         EfdClient to query the efd.
-    narrative_log_client : `NarrativeLogClient`
+    narrative_log_client
+        Narrative log query client.
+    all_tracebacks
+        Flag as to whether to query for all tracebacks from systems other
+        than lsst.sal.Script.logevent_logMessages.
 
     Returns
     -------
     narrative_and_errors : `pd.DataFrame`
     """
     messages = narrative_log_client.query_log(t_start, t_end)
-    # Modify narrative log content to match dataframes from errors
+    # Modify narrative log content
     if len(messages) > 0:
-        # rename some columns to match error data
-        messages.rename({"time_lost_type": "error_code", "user_id": "origin"}, axis=1, inplace=True)
-        # Add a salindex so we can color-code based on this as a "source"
-        messages["salIndex"] = SalIndexExtended.NARRATIVE_LOG_OTHER.value
+        # Add a category_index so we can color-code based on this as a "source"
+        messages["category_index"] = CategoryIndexExtended.NARRATIVE_LOG_OTHER.value
         idx = messages.query("component.str.contains('Simonyi') or component.str.contains('simonyi')").index
-        messages.loc[idx, "salIndex"] = SalIndexExtended.NARRATIVE_LOG_SIMONYI.value
+        messages.loc[idx, "category_index"] = CategoryIndexExtended.NARRATIVE_LOG_SIMONYI.value
         idx = messages.query("component.str.contains('Aux') or component.str.contains('aux')").index
-        messages.loc[idx, "salIndex"] = SalIndexExtended.NARRATIVE_LOG_AUX.value
-        messages["error_code"] = 0
-        messages["finalStatus"] = "Log"
+        messages.loc[idx, "category_index"] = CategoryIndexExtended.NARRATIVE_LOG_AUX.value
+        messages["script_salIndex"] = 0
         messages["timestampProcessStart"] = messages.apply(make_datetime, args=["date_begin"], axis=1)
         messages["timestampRunStart"] = messages.apply(make_datetime, args=["date_added"], axis=1)
         messages["timestampProcessEnd"] = messages.apply(make_datetime, args=["date_end"], axis=1)
+
+        def build_status(x: pd.Series) -> str:
+            if x.time_lost > 0:
+                st = f"Time Lost\n{x.time_lost_type} {x.time_lost}"
+            else:
+                st = "Log"
+            return st
+
+        messages["finalStatus"] = messages.apply(build_status, axis=1)
+        messages.rename(
+            {"component": "name", "user_id": "config", "message_text": "description"}, axis=1, inplace=True
+        )
     logger.info(f"Found {len(messages)} messages in the narrative log")
+
     # Get error codes
     errs = get_error_codes(t_start, t_end, efd_client)
-    # Merge narrative log messages and error messages
-    if len(errs) == 0:
-        narrative_and_errors = messages
-    elif len(messages) == 0:
-        narrative_and_errors = errs
+    if len(errs) > 0:
+        # Rename some columns to match narrative log columns
+        errs.rename(
+            {"errorCode": "script_salIndex", "errorReport": "description"},
+            axis=1,
+            inplace=True,
+        )
+
+    # Tracebacks (non-scriptqueue)
+    if all_tracebacks:
+        tracebacks = get_all_tracebacks(t_start, t_end, efd_client)
     else:
-        narrative_and_errors = pd.concat([errs, messages]).sort_index()
+        tracebacks = pd.DataFrame([])
+    # Merge
+    df_list = [messages, errs, tracebacks]
+    narrative_and_errors = pd.concat([df for df in df_list if not df.empty]).sort_index()
     return narrative_and_errors
 
 
@@ -806,7 +827,7 @@ def get_exposure_info(
     if len(image_acquisition_mt) > 0:
         for col in [c for c in image_acquisition_mt.columns if c.startswith("timestamp")]:
             image_acquisition_mt[col] = Time(image_acquisition_mt[col], format="unix_tai").utc.datetime
-        image_acquisition_mt["salIndex"] = SalIndexExtended.EXP_SIMONYI.value
+        image_acquisition_mt["category_index"] = CategoryIndexExtended.EXP_SIMONYI.value
         image_acquisition_mt["script_salIndex"] = 0
         image_acquisition_mt["finalStatus"] = "Image Acquired"
 
@@ -835,7 +856,7 @@ def get_exposure_info(
     if len(image_acquisition_cc) > 0:
         for col in [c for c in image_acquisition_cc.columns if c.startswith("timestamp")]:
             image_acquisition_cc[col] = Time(image_acquisition_cc[col], format="unix_tai").utc.datetime
-        image_acquisition_cc["salIndex"] = SalIndexExtended.EXP_SIMONYI.value
+        image_acquisition_cc["category_index"] = CategoryIndexExtended.EXP_SIMONYI.value
         image_acquisition_cc["script_salIndex"] = 0
         image_acquisition_cc["finalStatus"] = "Image Acquired"
 
@@ -866,7 +887,7 @@ def get_exposure_info(
         for col in [c for c in image_acquisition_at.columns if c.startswith("timestamp")]:
             # Is it possible ATCamera is not using tai?
             image_acquisition_at[col] = Time(image_acquisition_at[col], format="unix_tai").utc.datetime
-        image_acquisition_at["salIndex"] = SalIndexExtended.EXP_AUX.value
+        image_acquisition_at["category_index"] = CategoryIndexExtended.EXP_AUX.value
         image_acquisition_at["script_salIndex"] = 0
         image_acquisition_at["finalStatus"] = "Image Acquired"
 
@@ -893,11 +914,11 @@ def get_exposure_info(
         exp_logs.set_index("img_time", inplace=True)
         exp_logs.index = exp_logs.index.tz_localize("UTC")
         # Assign the exposure logs to the associated narrative log index
-        exp_logs["salIndex"] = SalIndexExtended.NARRATIVE_LOG_OTHER.value
+        exp_logs["category_index"] = CategoryIndexExtended.NARRATIVE_LOG_OTHER.value
         idx = exp_logs.query("instrument == 'LSSTCam' or instrument == 'LSSTComCam'").index
-        exp_logs.loc[idx, "salIndex"] = SalIndexExtended.NARRATIVE_LOG_SIMONYI.value
+        exp_logs.loc[idx, "category_index"] = CategoryIndexExtended.NARRATIVE_LOG_SIMONYI.value
         idx = exp_logs.query("instrument == 'LATISS'").index
-        exp_logs.loc[idx, "salIndex"] = SalIndexExtended.NARRATIVE_LOG_AUX.value
+        exp_logs.loc[idx, "category_index"] = CategoryIndexExtended.NARRATIVE_LOG_AUX.value
         exp_logs["script_salIndex"] = 0
         # Rename some columns in the exposure log to consolidate here
         exp_logs.rename(
@@ -933,7 +954,7 @@ def get_consolidated_messages(
         Must have clients for the `efd`, `obsenv`, `narrative_log` and
         `exposure_log`.
     all_tracebacks
-        If True, get all tracebacks, else get only scriptqueue tracebacks.
+        If True, get all tracebacks, else get only Script tracebacks.
 
     Returns
     -------
@@ -952,9 +973,10 @@ def get_consolidated_messages(
         "description",
         "config",
         "script_salIndex",
-        "salIndex",
+        "category_index",
         "finalStatus",
         "timestampProcessStart",
+        "timestampConfigureStart",
         "timestampConfigureEnd",
         "timestampRunStart",
         "timestampProcessEnd",
@@ -966,30 +988,20 @@ def get_consolidated_messages(
     # 'salIndex', 'blockId', 'finalScriptState', 'scriptState',
     # 'timestampProcessStart', 'timestampConfigureEnd',
     # 'timestampRunStart', 'timestampProcessEnd']
-    if all_tracebacks:
-        tracebacks = get_all_tracebacks(t_start, t_end, endpoints["efd"])
-    else:
-        tracebacks = get_scriptqueue_tracebacks(t_start, t_end, endpoints["efd"])
+    script_tracebacks = get_scriptqueue_tracebacks(t_start, t_end, endpoints["efd"])
     scheduler_configs = get_scheduler_configs(t_start, t_end, endpoints["efd"], endpoints["obsenv"])
-    script_status = pd.concat([scheduler_configs, script_status, tracebacks])
-    script_status.rename({"classname": "name", "finalScriptState": "finalStatus"}, axis=1, inplace=True)
-
-    # columns from narrative and errors
-    narrative_and_errs = get_narrative_and_errors(
-        t_start, t_end, endpoints["efd"], endpoints["narrative_log"]
-    )
-    # narrative_cols = ['component', 'origin', 'message_text',
-    # 'error_code', 'salIndex']
-    narrative_and_errs.rename(
-        {
-            "component": "name",
-            "origin": "config",
-            "message_text": "description",
-            "error_code": "script_salIndex",
-        },
+    script_status = pd.concat([scheduler_configs, script_status, script_tracebacks])
+    script_status.rename(
+        {"salIndex": "category_index", "classname": "name", "finalScriptState": "finalStatus"},
         axis=1,
         inplace=True,
     )
+
+    # columns from narrative and errors
+    narrative_and_errs = get_narrative_and_errors(
+        t_start, t_end, endpoints["efd"], endpoints["narrative_log"], all_tracebacks
+    )
+
     # columns from images_and_logs
     image_and_logs = get_exposure_info(
         t_start,
@@ -1014,6 +1026,7 @@ def get_consolidated_messages(
 
     df_list = [script_status, narrative_and_errs, image_and_logs]
     efd_and_messages = pd.concat([df for df in df_list if not df.empty]).sort_index()
+
     # Wrap description, for on-screen spacing
     efd_and_messages["description"] = efd_and_messages["description"].str.wrap(100)
 
@@ -1027,25 +1040,26 @@ def get_consolidated_messages(
     if len(block_names) > 0:
         block_names.index = block_names.index - EPS_TIME * 30
         idx = block_names.query("salIndex == 1 or salIndex == 3").index
-        block_names.loc[idx, "salIndex"] = SalIndexExtended.AUTOLOG_SIMONYI.value
+        block_names.loc[idx, "salIndex"] = CategoryIndexExtended.AUTOLOG_SIMONYI.value
         idx = block_names.query("salIndex == 2").index
-        block_names.loc[idx, "salIndex"] = SalIndexExtended.AUTOLOG_AUX.value
+        block_names.loc[idx, "salIndex"] = CategoryIndexExtended.AUTOLOG_AUX.value
+        block_names.rename({"salIndex": "category_index"}, axis=1, inplace=True)
     # Find the FBS setup and starts
     mt_fbs_resume_times = efd_and_messages.query("name == 'MTSchedulerResume'")
     at_fbs_resume_times = efd_and_messages.query("name == 'ATSchedulerResume'")
     scheduler_configs = efd_and_messages.query('name == "Scheduler configuration"')
 
-    def find_fbs_yaml(row: pd.Series, scheduler_configs: pd.DataFrame) -> str:
-        earlier_configs = scheduler_configs.query("index < @row.name")
+    def find_fbs_yaml(row: pd.Series, scheduler_configs: pd.DataFrame, queue_index: int) -> str:
+        earlier_configs = scheduler_configs.query("index < @row.name and category_index==@queue_index")
         best_config = earlier_configs.iloc[-1].config
         return best_config.split(",")[-1]
 
-    mt_sched_yamls = mt_fbs_resume_times.apply(find_fbs_yaml, args=[scheduler_configs], axis=1)
+    mt_sched_yamls = mt_fbs_resume_times.apply(find_fbs_yaml, args=[scheduler_configs, 1], axis=1)
     mt_sched_yamls = pd.DataFrame(mt_sched_yamls, columns=["id"])
-    mt_sched_yamls["salIndex"] = SalIndexExtended.AUTOLOG_SIMONYI.value
-    at_sched_yamls = at_fbs_resume_times.apply(find_fbs_yaml, args=[scheduler_configs], axis=1)
+    mt_sched_yamls["category_index"] = CategoryIndexExtended.AUTOLOG_SIMONYI.value
+    at_sched_yamls = at_fbs_resume_times.apply(find_fbs_yaml, args=[scheduler_configs, 2], axis=1)
     at_sched_yamls = pd.DataFrame(at_sched_yamls, columns=["id"])
-    at_sched_yamls["salIndex"] = SalIndexExtended.AUTOLOG_AUX.value
+    at_sched_yamls["category_index"] = CategoryIndexExtended.AUTOLOG_AUX.value
     sched_yamls = pd.concat([mt_sched_yamls, at_sched_yamls])
     if len(block_names) > 0 and len(sched_yamls) > 0:
         task_changes = pd.concat([block_names, sched_yamls])

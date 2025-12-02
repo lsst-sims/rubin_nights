@@ -10,7 +10,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["ScriptState", "CSCState", "SalIndex", "SalIndexExtended", "apply_enum"]
+__all__ = ["ScriptState", "CSCState", "SalIndex", "CategoryIndexExtended", "apply_enum"]
 
 # Make mypy happy like this
 if TYPE_CHECKING:
@@ -68,17 +68,20 @@ else:
             OCS = 3
 
 
-class SalIndexExtended(enum.IntEnum):
-    """Add assigned `salIndex` values for other portions of the
+class CategoryIndexExtended(enum.IntEnum):
+    """Add assigned `category index` values for other portions of the
     scriptqueue context feed.
     """
 
     MAIN_TEL = SalIndex.MAIN_TEL.value
     AUX_TEL = SalIndex.AUX_TEL.value
     OCS = SalIndex.OCS.value
-    ERRORS = 4
-    EXP_SIMONYI = 5
-    EXP_AUX = 6
+    ERRORS_SIMONYI = 4
+    ERRORS_AUX = 5
+    ERRORS_OTHER = 6
+    EXP_SIMONYI = 7
+    EXP_AUX = 8
+    EXP_OTHER = 9
     AUTOLOG_SIMONYI = 10
     AUTOLOG_AUX = 11
     AUTOLOG_OTHER = 12
