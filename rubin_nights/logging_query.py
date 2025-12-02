@@ -228,7 +228,8 @@ class NightReportClient(LoggingServiceClient):
                     html += f"{summary}"
         if "telescope_status" in log:
             html += "<p> <strong>Status:</strong><br>"
-            html += f"{log['telescope_status'].replace('\n', '<br>')}"
+            status = log["telescope_status"].replace("\n", "<br>")
+            html += f"{status}"
         return html
 
 
