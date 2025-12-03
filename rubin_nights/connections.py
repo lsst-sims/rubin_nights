@@ -13,7 +13,7 @@ __all__ = ["get_access_token", "get_clients", "usdf_lfa"]
 logger = logging.getLogger(__name__)
 
 
-def get_access_token(tokenfile: str | None = None) -> str:
+def get_access_token(tokenfile: str | None = None, default_tokenfile: str = "usdf_rsp") -> str:
     """Retrieve RSP access token.
 
     Parameters
@@ -22,11 +22,18 @@ def get_access_token(tokenfile: str | None = None) -> str:
         Path to the RSP token file. See documentation on RSP tokens at
         https://rsp.lsst.io/v/usdfprod/guides/auth/creating-user-tokens.html
         The token will be read from the tokenfile if available.
-        The default value of `None` will attempt to use the
-        `lsst.rsp.get_access_token` method if accessible, or then
-        look for ACCESS_TOKEN in environment variables.
+        If tokenfile is None, then further attempts will be made to
+        access the token value from:
+        `lsst.rsp.get_access_token`
+        the environment variable "ACCESS_TOKEN"
+        the environment variable "ACCESS_TOKEN_FILE"
+        the home directory + '.lsst' + default_root
         If no RSP token is available, access to most services will not
         be available.
+    default_tokenfile
+        If token information is not available from the options above,
+        this defines the default filename on disk to search for in
+        user home directory / .lsst / <default_tokenfile>.
 
     Returns
     -------
@@ -41,11 +48,12 @@ def get_access_token(tokenfile: str | None = None) -> str:
     same site.
     """
     token = None
-    # First - tokenfile provided
+    # First - tokenfile explicitly provided.
     if tokenfile is not None:
         with open(tokenfile, "r") as f:
             token = f.read().strip()
     else:
+        logger.debug("Tokenfile not specified.")
         # Second - are we at an RSP and should use lsst.rsp.get_access_token
         try:
             import lsst.rsp.get_access_token as rsp_get_access_token
@@ -53,14 +61,40 @@ def get_access_token(tokenfile: str | None = None) -> str:
             token = rsp_get_access_token(tokenfile=tokenfile)
         except ImportError:
             # Not on an RSP.
+            logger.debug("Attempt to import lsst.rsp.get_access_token failed.")
             pass
-        # Third - try environment variable ACCESS_TOKEN
+        # Third - try environment variable ACCESS_TOKEN (containing token)
         if token is None:
             token = os.environ.get("ACCESS_TOKEN", None)
-    # Final check to issue warning.
+        # Fourth - try environment variable ACCESS_TOKEN_FILE (file location)
+        if token is None:
+            logger.debug("$ACCESS_TOKEN not set.")
+            tokenfile = os.environ.get("ACCESS_TOKEN_FILE", None)
+            if tokenfile is not None:
+                logger.debug(f"Checking $ACCESS_TOKEN_FILE {tokenfile}")
+                # Try to read this, but an error is not an exception.
+                try:
+                    with open(tokenfile, "r") as f:
+                        token = f.read().strip()
+                except FileNotFoundError:
+                    logger.debug(f"{tokenfile} does not exist.")
+                    pass
+        # Fifth - try a default home directory location.
+        if token is None:
+            logger.debug("$ACCESS_TOKEN_FILE not set.")
+            tokenfile = os.path.join(os.path.expanduser("~"), ".lsst", default_tokenfile)
+            logger.debug(f"Checking {tokenfile}")
+            # Try to read this, but an error is not an exception.
+            try:
+                with open(tokenfile, "r") as f:
+                    token = f.read().strip()
+            except FileNotFoundError:
+                logger.debug(f"{tokenfile} does not exist.")
+                pass
+    # Final check on token value, in order to issue warning.
     if token is None:
         token = ""
-        logging.warning("No RSP token found.")
+        logging.error("No RSP token found.")
     return token
 
 
@@ -75,6 +109,7 @@ def get_clients(
     ----------
     tokenfile
         Path to the RSP tokenfile. See also `get_access_token`.
+        Can be None if one of other methods to set token will be successful.
     site
         Override site location to a preferred site.
         Most likely to be used to specify `usdf-dev` vs `usdf`.
@@ -112,6 +147,7 @@ def get_clients(
         "usdf": "https://usdf-rsp.slac.stanford.edu",
         "usdf-dev": "https://usdf-rsp-dev.slac.stanford.edu",
         "summit": "https://summit-lsp.lsst.codes",
+        "base": "https://base-lsp.lsst.codes",
     }
 
     if site is None:
@@ -123,11 +159,16 @@ def get_clients(
             site = "usdf-dev"
         elif "usdf-rsp" in location:
             site = "usdf"
+        elif "base" in location:
+            site = "base"
         # Otherwise, use the USDF resources, outside of the RSP
         if site is None:
             site = "usdf"
     else:
         site = site
+
+    if site not in api_endpoints:
+        raise ValueError(f"Site {site} must be in {list(api_endpoints.keys())}")
 
     api_base = api_endpoints[site]
     narrative_log = NarrativeLogClient(api_base, auth)
