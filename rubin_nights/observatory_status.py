@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from astropy.time import Time
 
+from .dayobs_utils import day_obs_sunset_sunrise
 from .influx_query import InfluxQueryClient, day_obs_from_efd_index
 
 __all__ = ["get_dome_open_close", "mtm1m3_slewflag_times", "get_rotator_limits", "get_tma_limits"]
@@ -11,9 +12,12 @@ __all__ = ["get_dome_open_close", "mtm1m3_slewflag_times", "get_rotator_limits",
 logger = logging.getLogger(__name__)
 
 
-def get_dome_open_close(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
+def get_dome_open_close(
+    t_start: Time, t_end: Time, efd_client: InfluxQueryClient, with_sunset_sunrise: bool = True
+) -> pd.DataFrame:
     """Dataframe containing the open and close times for Simonyi dome,
-    from ~50% positionActual shutter values `lsst.sal.MTDome.apertureShutter`.
+    from positionCommanded and positionActual shutter values in
+    `lsst.sal.MTDome.apertureShutter`.
 
     Parameters
     ----------
@@ -23,74 +27,146 @@ def get_dome_open_close(t_start: Time, t_end: Time, efd_client: InfluxQueryClien
         Time of the end of the events.
     efd_client
         Sync EFD client.
+    with_sunrise_sunset
+        If True, add -12 degree sunset and sunrise columns.
 
     Returns
     -------
     dome_open_close : `pd.DataFrame`
         Dataframe containing pairs of open/close datetimes + elapsed time
         for each dome-open period in each day_obs.
+        Note that the dome open close times are in TAI.
 
     Notes
     -----
-    If the query time does not include the open or close time
-    for a particular period, the result will either be a negative
-    elapsed open dome time or no opening/closing value reported.
+    This primarily returns dome open + close pairs.
+    However, a dome open event without a later close will be returned
+    as simply a dome open.
     """
-    # Get dome open/close information
-    query = (
+    # Get dome open/close information.
+    # this should likely come from lsst.sal.MTDome.logevent_shutterMotion
+    # instead, once logevent_shutterMotion becomes reliable.
+    open_query = (
         "SELECT positionActual0, positionActual1, "
         "positionCommanded0, positionCommanded1 FROM "
         '"lsst.sal.MTDome.apertureShutter" WHERE '
-        f"time >= '{t_start.isot}Z' AND time <= '{t_end.isot}Z' "
-        "AND (abs(positionActual0) >= 48 and abs(positionActual0) <= 55) "
-        "and (abs(positionActual1) >= 48 and abs(positionActual1) <= 55)"
+        f"time >= '{t_start.utc.isot}Z' AND time <= '{t_end.utc.isot}Z' "
+        "AND (abs(positionCommanded0) = 100 and abs(positionCommanded1) = 100) "
+        "AND (abs(positionActual0) >= 25 and abs(positionActual0) <= 85) "
+        "and (abs(positionActual1) >= 25 and abs(positionActual1) <= 85)"
     )
-    # this should come from lsst.sal.MTDome.logevent_shutterMotion
-    # instead, once logevent_shutterMotion becomes reliable.
-    dome_shutter: pd.DataFrame = efd_client.query(query)
-    if len(dome_shutter) == 0:
-        # Make and return an empty data frame with the expected columns
+    dome_shutter_open: pd.DataFrame = efd_client.query(open_query)
+
+    # dome closes a bit faster than it opens, so having a wider range of
+    # positionActual values is helpful.
+    close_query = (
+        "SELECT positionActual0, positionActual1, "
+        "positionCommanded0, positionCommanded1 FROM "
+        '"lsst.sal.MTDome.apertureShutter" WHERE '
+        f"time >= '{t_start.utc.isot}Z' AND time <= '{t_end.utc.isot}Z' "
+        "AND (abs(positionCommanded0) = 0 and abs(positionCommanded1) = 0) "
+        "AND (abs(positionActual0) >= 25 and abs(positionActual0) <= 85) "
+        "and (abs(positionActual1) >= 25 and abs(positionActual1) <= 85)"
+    )
+    dome_shutter_close: pd.DataFrame = efd_client.query(close_query)
+
+    if len(dome_shutter_open) == 0:
+        # Make and return an empty data frame with the expected columns.
         dome_shutter = pd.DataFrame([], columns=["day_obs", "open_time", "close_time", "open_hours"])
         return dome_shutter
 
     # Add day_obs
-    dome_shutter["day_obs"] = dome_shutter.apply(day_obs_from_efd_index, axis=1)
+    dome_shutter_open["day_obs"] = dome_shutter_open.apply(day_obs_from_efd_index, axis=1)
+    if len(dome_shutter_close) > 0:
+        dome_shutter_close["day_obs"] = dome_shutter_close.apply(day_obs_from_efd_index, axis=1)
+
     # Find open/close times in each day_obs
-    # Fails on day_obs 20250809 -- TODO
     dome_open = []
-    for day_obs in dome_shutter.day_obs.unique():
+    for day_obs in dome_shutter_open.day_obs.unique():
         # dome open/close events
-        dd = dome_shutter.query("day_obs == @day_obs")
-        opening = dd.query("positionCommanded0 == 100 or positionCommanded1 == 100")
+        opening = dome_shutter_open.query("day_obs == @day_obs")
+        open_start = None
         if len(opening) > 0:
-            gaps = (
-                np.concatenate(
-                    [np.array([-1]), np.where((np.diff(opening.index) / pd.Timedelta(1, "s")) > 5 * 60)[0]]
-                )
-                + 1
-            )
-            open_start = opening.iloc[gaps].index.values
-            closing = dd.query("positionCommanded0 == 0 or positionCommanded1 == 0")
-            if len(closing) > 0:
-                # This means for an in-progress night with the dome open,
-                # or if the query doesn't include the closing time,
-                # we won't record the last open/close.
-                gaps = (
-                    np.concatenate(
-                        [
-                            np.array([-1]),
-                            np.where((np.diff(closing.index) / pd.Timedelta(1, "s")) > 5 * 60)[0],
-                        ]
-                    )
-                    + 1
-                )
-                close_start = closing.iloc[gaps].index.values
-                for os, cs in zip(open_start, close_start):
-                    open_time = Time(os).tai
-                    close_time = Time(cs).tai
-                    open_hours = (close_time - open_time).jd * 24
-                    dome_open.append([day_obs, open_time, close_time, open_hours])
-    dome_open = pd.DataFrame(dome_open, columns=["day_obs", "open_time", "close_time", "open_hours"])
+            # There are many 'opening' lines in dome_shutter_open;
+            # pick out the ones which are the first in each 5 minute interval
+            # This should separate dome opening events (which are <5 minutes).
+            gaps = np.where((np.diff(opening.index) / pd.Timedelta(1, "s")) > 5 * 60)[0]
+            # And add 1 because np.diff gives you the previous index.
+            gaps += 1
+            # And add an index for the very first dome_open index,
+            # which doesn't have a previous 5 minute interval (so misses diff).
+            gaps = np.concatenate([np.array([0]), gaps])
+            open_start = Time(opening.iloc[gaps].index.values, scale="utc").utc.datetime
+
+        closing = dome_shutter_close.query("day_obs == @day_obs")
+        close_start = None
+        if len(closing) > 0:
+            # Pick out the dome closing events that are first in each
+            # 5 minute interval (separate dome closing events).
+            gaps = np.where((np.diff(closing.index) / pd.Timedelta(1, "s")) > 5 * 60)[0]
+            gaps += 1
+            gaps = np.concatenate([np.array([0]), gaps])
+            close_start = Time(closing.iloc[gaps].index.values, scale="utc").utc.datetime
+
+        # Sometimes telemetry is weird .. can't just zip these.
+        # Look through open and close and match them up.
+        if open_start is not None:
+            for i in range(len(open_start)):
+                open_time = open_start[i]
+                if close_start is not None:
+                    # Find the possible close times for this open_time.
+                    close_time = np.where(close_start >= open_time)[0]
+                    # If there are any - pick the first one.
+                    if len(close_time) > 0:
+                        close_time = close_start[close_time[0]]
+                    else:
+                        close_time = pd.NaT
+                else:
+                    # No close_start times at all
+                    close_time = pd.NaT
+                if not pd.isna(close_time):
+                    open_hours = (close_time - open_time) / np.timedelta64(3600, "s")
+                else:
+                    open_hours = np.nan
+
+                dome_open.append([day_obs, open_time, close_time, open_hours])
+
+    dome_open = pd.DataFrame(dome_open, columns=["day_obs", "open_time", "close_time", "dome_hours"])
+
+    if with_sunset_sunrise:
+        # Add sunrise/sunset/night open hours information to the dataframe.
+        cols = ["sunset12", "sunrise12", "night_hours", "open_hours"]
+        night_info = pd.DataFrame(
+            [
+                np.array([pd.Timestamp(0)] * len(dome_open)),
+                np.array([pd.Timestamp(0)] * len(dome_open)),
+                np.zeros(len(dome_open)),
+                np.zeros(len(dome_open)),
+            ],
+            index=cols,
+            columns=dome_open.index.copy(),
+        ).T
+        dome_open = dome_open.join(night_info)
+
+        def apply_night_hours(x: pd.Series) -> pd.Series:
+            sunset, sunrise = day_obs_sunset_sunrise(x.day_obs, sun_alt=-12)
+            x.sunset12 = sunset.utc.datetime
+            x.sunrise12 = sunrise.utc.datetime
+            x.night_hours = (x.sunrise12 - x.sunset12) / pd.Timedelta(1, "h")
+            start = np.max([x.open_time, x.sunset12])
+            if not pd.isna(x.close_time):
+                end = np.min([x.close_time, x.sunrise12])
+                # Because sometimes we have dome open times
+                # entirely within the daytime .. let's zero those out.
+                end = np.max([end, x.sunset12])
+            else:
+                end = start
+            x.open_hours = (end - start) / pd.Timedelta(1, "h")
+            return x
+
+        # dome_open['night_hours'] = dome_open.apply(apply_night_hours, axis=1)
+        dome_open = dome_open.apply(apply_night_hours, axis=1)
+
     return dome_open
 
 

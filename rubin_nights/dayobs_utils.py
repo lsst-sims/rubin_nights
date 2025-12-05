@@ -1,4 +1,5 @@
 import datetime
+import functools
 
 import astropy.units as u
 from astroplan import Observer
@@ -13,6 +14,7 @@ __all__ = [
     "day_obs_int_to_str",
     "day_obs_to_date",
     "day_obs_to_time",
+    "rubin_observer",
     "day_obs_sunset_sunrise",
 ]
 
@@ -60,6 +62,16 @@ def day_obs_to_time(day_obs: int | str) -> Time:
         return Time(f"{day_obs}T12:00:00", format="isot", scale="tai")
 
 
+@functools.cache
+def rubin_observer() -> Observer:
+    try:
+        observer = Observer.at_site("Rubin")
+    except UnknownSiteException:
+        # Better to use Rubin, but old astropy installs might not have it.
+        observer = Observer.at_site("Cerro Pachon")
+    return observer
+
+
 def day_obs_sunset_sunrise(day_obs: str | int, sun_alt: float = -12) -> tuple[Time, Time]:
     """Return the civil sunset and sunrise for day_obs.
 
@@ -76,18 +88,15 @@ def day_obs_sunset_sunrise(day_obs: str | int, sun_alt: float = -12) -> tuple[Ti
         The time of -6 degree (civil) sunset and sunrise.
         Science observations are generally expected from -12 degree twilight.
     """
-    if isinstance(day_obs, int):
-        day_obs_str = str(day_obs)
-    else:
+    if isinstance(day_obs, str):
         day_obs_str = day_obs
+    else:
+        day_obs_str = str(day_obs)
+    # Sometimes we may be passed YYYYMMDD in a string already
     if "-" not in day_obs_str:
         day_obs_str = day_obs_int_to_str(int(day_obs))
     day_obs_time = Time(f"{day_obs_str}T12:00:00", format="isot", scale="tai")
-    try:
-        observer = Observer.at_site("Rubin")
-    except UnknownSiteException:
-        # Better to use Rubin, but old astropy installs might not have it.
-        observer = Observer.at_site("Cerro Pachon")
+    observer = rubin_observer()
     sunset = Time(
         observer.sun_set_time(day_obs_time, which="next", horizon=sun_alt * u.deg), format="jd", scale="tai"
     )
