@@ -5,6 +5,7 @@ import os
 from urllib.parse import urlparse
 
 from .consdb_query import ConsDbFastAPI, ConsDbTap
+from .reference_values import API_ENDPOINTS
 from .influx_query import InfluxQueryClient
 from .logging_query import ExposureLogClient, NarrativeLogClient, NightReportClient
 
@@ -143,13 +144,6 @@ def get_clients(
 
     auth = ("user", token)
 
-    api_endpoints = {
-        "usdf": "https://usdf-rsp.slac.stanford.edu",
-        "usdf-dev": "https://usdf-rsp-dev.slac.stanford.edu",
-        "summit": "https://summit-lsp.lsst.codes",
-        "base": "https://base-lsp.lsst.codes",
-    }
-
     if site is None:
         # Guess site from EXTERNAL_INSTANCE_URL (set for RSPs)
         location = os.getenv("EXTERNAL_INSTANCE_URL", "")
@@ -169,10 +163,10 @@ def get_clients(
     else:
         site = site
 
-    if site not in api_endpoints:
-        raise ValueError(f"Site {site} must be in {list(api_endpoints.keys())}")
+    if site not in API_ENDPOINTS:
+        raise ValueError(f"Site {site} must be in {list(API_ENDPOINTS.keys())}")
 
-    api_base = api_endpoints[site]
+    api_base = API_ENDPOINTS[site]
     narrative_log = NarrativeLogClient(api_base, auth)
     exposure_log = ExposureLogClient(api_base, auth)
     night_report = NightReportClient(api_base, auth)
