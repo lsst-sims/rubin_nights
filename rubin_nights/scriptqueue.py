@@ -87,8 +87,10 @@ def get_scheduler_configs(
     # The configurationApplied should happen with every scheduler Enable
     topic = "lsst.sal.Scheduler.logevent_configurationApplied"
     fields = ["SchedulerId", "configurations", "salIndex", "schemaVersion", "url", "version"]
-    conf_start = efd_client.select_top_n(topic, fields, num=1, time_cut=t_start, index=queue_index)
-    conf = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue_index)
+    conf_start: pd.DataFrame = efd_client.select_top_n(
+        topic, fields, num=1, time_cut=t_start, index=queue_index
+    )
+    conf: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue_index)
     conf = pd.concat([conf_start, conf])
     if len(conf) > 0:
 
@@ -136,8 +138,10 @@ def get_scheduler_configs(
     # Also find the obsenv
     topic = "lsst.obsenv.summary"
     fields = ["summit_extras", "summit_utils", "ts_standardscripts", "ts_externalscripts", "ts_config_ocs"]
-    obsenv_start = obsenv_client.select_top_n(topic, fields, num=1, time_cut=Time(conf.index[0]))
-    obsenv = obsenv_client.select_time_series(topic, fields, Time(conf.index[0]), t_end)
+    obsenv_start: pd.DataFrame = obsenv_client.select_top_n(
+        topic, fields, num=1, time_cut=Time(conf.index[0])
+    )
+    obsenv: pd.DataFrame = obsenv_client.select_time_series(topic, fields, Time(conf.index[0]), t_end)
     obsenv = pd.concat([obsenv_start, obsenv])
     if len(obsenv) == 0:
         logger.warning("Could not find obsenv values.")
@@ -186,10 +190,10 @@ def get_scheduler_configs(
         "salIndex",
         "version",
     ]
-    deps_start = efd_client.select_top_n(
+    deps_start: pd.DataFrame = efd_client.select_top_n(
         topic, fields, num=1, time_cut=Time(conf.index[0]), index=queue_index
     )
-    deps = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue_index)
+    deps: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue_index)
     deps = pd.concat([deps_start, deps])
     if len(deps) == 0:
         logger.warning("Could not find scheduler dependencies.")
@@ -262,7 +266,7 @@ def get_script_stream(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
     # The description topic gives a more succinct human name to the scripts
     topic = "lsst.sal.Script.logevent_description"
     fields = ["classname", "description", "salIndex"]
-    scriptdescription = efd_client.select_time_series(topic, fields, t_start, t_end)
+    scriptdescription: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
     scriptdescription.rename({"salIndex": "script_salIndex"}, axis=1, inplace=True)
 
     # This gets us more information about the script parameters,
@@ -270,7 +274,7 @@ def get_script_stream(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
     topic = "lsst.sal.Script.command_configure"
     fields = ["blockId", "config", " executionId", "salIndex"]
     # note blockId is only filled for JSON BLOCK activities
-    scriptconfig = efd_client.select_time_series(topic, fields, t_start, t_end)
+    scriptconfig: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
     scriptconfig.rename({"salIndex": "script_salIndex"}, axis=1, inplace=True)
 
     # Merge these together on script_salIndex which is unique over tinterval
@@ -336,7 +340,7 @@ def get_script_state(
     ]
     # Providing an integer salIndex will restrict this query to a single queue,
     # but None will query all queues.
-    scripts = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue_index)
+    scripts: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue_index)
     scripts.rename({"scriptSalIndex": "script_salIndex"}, axis=1, inplace=True)
     if len(scripts) == 0:
         logger.info(f"Found 0 script events in {t_start.utc.iso} to {t_end.utc.iso}.")
@@ -425,7 +429,7 @@ def get_script_status(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
     topic = "lsst.sal.ScriptQueue.logevent_summaryState"
     fields = ["salIndex", "summaryState"]
     # Were there breaks in this queue?
-    dd = efd_client.select_time_series(topic, fields, t_start, t_end)
+    dd: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
     if len(dd) == 0:
         restart_events = 0
     else:
@@ -456,15 +460,15 @@ def get_script_status(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
             topic = "lsst.sal.ScriptQueue.logevent_summaryState"
             fields = ["salIndex", "summaryState"]
             # Were there breaks in this particular queue?
-            dd = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue)
-            if len(dd) == 0:
+            ddd: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue)
+            if len(ddd) == 0:
                 tstops = []
                 tintervals = [[t_start, t_end]]
             else:
-                dd["state"] = dd.apply(apply_enum, args=["summaryState", CSCState], axis=1)
-                dd["state_time"] = Time(dd.index.values)
+                ddd["state"] = ddd.apply(apply_enum, args=["summaryState", CSCState], axis=1)
+                ddd["state_time"] = Time(ddd.index.values)
 
-                tstops = dd.query('state == "ENABLED"').state_time.values
+                tstops = ddd.query('state == "ENABLED"').state_time.values
                 if len(tstops) == 0:
                     tintervals = [[t_start, t_end]]
                 if len(tstops) > 0:
@@ -674,7 +678,7 @@ def get_error_codes(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -
 
     errs = []
     for topic in err_codes:
-        df = efd_client.select_time_series(topic, ["errorCode", "errorReport"], t_start, t_end)
+        df: pd.DataFrame = efd_client.select_time_series(topic, ["errorCode", "errorReport"], t_start, t_end)
         csc = topic.replace("lsst.sal", "").replace("logevent_errorCode", "").replace(".", "")
         # Try to guess a good index for this CSC
         if csc.startswith("MT") or csc.endswith(":1"):
@@ -821,7 +825,7 @@ def get_exposure_info(
         "timestampDateEnd",
         "timestampDateObs",
     ]
-    image_acquisition_mt = efd_client.select_time_series(topic, fields, t_start, t_end)
+    image_acquisition_mt: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
     # If there were zero images in this timeperiod, just return now.
     if len(image_acquisition_mt) > 0:
         for col in [c for c in image_acquisition_mt.columns if c.startswith("timestamp")]:
@@ -850,7 +854,7 @@ def get_exposure_info(
         "timestampDateEnd",
         "timestampDateObs",
     ]
-    image_acquisition_cc = efd_client.select_time_series(topic, fields, t_start, t_end)
+    image_acquisition_cc: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
     # If there were zero images in this timeperiod, just return now.
     if len(image_acquisition_cc) > 0:
         for col in [c for c in image_acquisition_cc.columns if c.startswith("timestamp")]:
@@ -880,7 +884,7 @@ def get_exposure_info(
         "timestampDateEnd",
         "timestampDateObs",
     ]
-    image_acquisition_at = efd_client.select_time_series(topic, fields, t_start, t_end)
+    image_acquisition_at: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
     # If there were zero images in this timeperiod, just return now.
     if len(image_acquisition_at) > 0:
         for col in [c for c in image_acquisition_at.columns if c.startswith("timestamp")]:

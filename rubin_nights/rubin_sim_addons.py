@@ -238,10 +238,7 @@ def consdb_to_opsim(consdb_visits: pd.DataFrame) -> pd.DataFrame | None:
     # Appropriate for SV survey
     opsim_visits["nexp"] = 1
     opsim_visits["night"] = np.floor(
-        (
-            Time(opsim_visits["observationStartMJD"], format="mjd", scale="tai")
-            - SURVEY_START
-        ).jd
+        (Time(opsim_visits["observationStartMJD"], format="mjd", scale="tai") - SURVEY_START).jd
     )
 
     return opsim_visits
