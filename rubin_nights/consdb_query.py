@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pyvo
 from astropy.time import Time
+from pyvo.dal import DALQueryError
 
 try:
     import sqlalchemy
@@ -27,9 +28,11 @@ __all__ = ["ConsDbTap", "ConsDbFastAPI", "ConsDbSql"]
 class ConsDb:
 
     def query(self, query: str) -> pd.DataFrame:
-        """The simple query method is implemented in the child classes,
+        """The query method is implemented in the child classes,
         according to the specific service/interface used to access the ConsDB.
         """
+        logger.error("Use a specific-service version of the ConsDB.")
+        logger.error("Query is implemented in these classes only.")
         raise NotImplementedError
 
     def get_visits(
@@ -150,10 +153,18 @@ class ConsDbTap(ConsDb):
         e.g. https://usdf-rsp.slac.stanford.edu
     token
         The token for authentication.
+    query_timeout
+        Seconds to wait for a query to complete, in remote service.
+
+    Notes
+    -----
+    This class provides a `pyvo.dal.TAPService` connection to the Consdb,
+    accessible at `ConsDbTap.tap`.
     """
 
-    def __init__(self, api_base: str, token: str):
+    def __init__(self, api_base: str, token: str, query_timeout: float = 10 * 60):
         url = api_base + "/api/consdbtap"
+        self.query_timeout = query_timeout
         cred = pyvo.auth.CredentialStore()
         cred.set_password("x-oauth-basic", token)
         self.credential = cred.get("ivo://ivoa.net/sso#BasicAA")
@@ -174,12 +185,34 @@ class ConsDbTap(ConsDb):
         -------
         results : `pd.DataFrame`
         """
-        try:
-            results = self.tap.search(query).to_table().to_pandas()
-        except Exception as e:
-            logger.warning(e)
+        # try:
+        #     results = self.tap.run_async(query)
+        #     results = results.to_table().to_pandas()
+        # except DALQueryError as e:
+        #     logger.error(e)
+        #     results = pd.DataFrame([])
+        job = self.tap.submit_job(query)
+        job.run()
+        job.wait(phases=["COMPLETED", "ERROR", "ABORTED"], timeout=self.query_timeout)
+        if job.phase == "COMPLETED":
+            results = job.fetch_result().to_table().to_pandas()
+        else:
+            try:
+                job.raise_if_error()
+            except DALQueryError as e:
+                logger.error(e)
             results = pd.DataFrame([])
         return results
+
+    async def async_query(self, query: str) -> pd.DataFrame:
+        """PyvoTapService handles async queries outside of asyncio.
+        Use the `tap` attribute directly.
+        """
+        logger.error(
+            "async queries via TAP should be handled by interacting"
+            "with the ConsDbTAP.tap service directly."
+        )
+        raise NotImplementedError
 
 
 class ConsDbFastAPI(ConsDb):
@@ -193,6 +226,7 @@ class ConsDbFastAPI(ConsDb):
     auth
         The username and password for authentication.
     query_timeout
+        Seconds to wait for the query to return data.
 
     """
 
@@ -206,6 +240,10 @@ class ConsDbFastAPI(ConsDb):
         self.httpx_client = httpx.Client(
             base_url=self.base_url, timeout=timeout, transport=transport, auth=auth
         )
+        atransport = httpx.AsyncHTTPTransport(retries=2)
+        self.async_client = httpx.AsyncClient(
+            base_url=self.base_url, timeout=timeout, transport=atransport, auth=auth
+        )
 
     def __del__(self) -> None:
         self.httpx_client.close()
@@ -213,8 +251,23 @@ class ConsDbFastAPI(ConsDb):
     def __repr__(self) -> str:
         return self.base_url
 
+    def _to_pandas(self, messages: dict) -> pd.DataFrame:
+        # Turn json dictionary returned from consdb into pandas dataframe
+        # De-duplicate columns (assumes they are identical).
+        # Non-duplication breaks later groupby.
+        results = pd.DataFrame(messages["data"], columns=messages["columns"])
+        # Check for duplicate columns.
+        indices = np.where(pd.Series(results.columns.duplicated()))[0]
+        newcols = results.columns.to_list()
+        for i in indices:
+            newcols[i] = newcols[i] + "_duplicate"
+        # Have to change only some instances of the duplicates
+        results.columns = newcols
+        results.drop(results.columns[indices], axis=1, inplace=True)
+        return results
+
     def query(self, query: str) -> pd.DataFrame:
-        """Execute FastAPI ConsDB query.
+        """Execute synchronous FastAPI ConsDB query.
 
         Parameters
         ----------
@@ -262,15 +315,61 @@ class ConsDbFastAPI(ConsDb):
         else:
             messages = response.json()
         if len(messages) > 0:
-            results = pd.DataFrame(messages["data"], columns=messages["columns"])
-            # Check for duplicate columns.
-            indices = np.where(pd.Series(results.columns.duplicated()))[0]
-            newcols = results.columns.to_list()
-            for i in indices:
-                newcols[i] = newcols[i] + "_duplicate"
-            # Have to change only some instances of the duplicates
-            results.columns = newcols
-            results.drop(results.columns[indices], axis=1, inplace=True)
+            results = self._to_pandas(messages)
+        else:
+            results = pd.DataFrame([])
+        return results
+
+    async def async_query(self, query: str) -> pd.DataFrame:
+        """Execute asynchronous FastAPI ConsDB query.
+
+        Parameters
+        ----------
+        query
+            SQL query.
+
+        Returns
+        -------
+        results : `pd.DataFrame`
+        """
+        params = {"query": query}
+        try:
+            response = await self.async_client.post("/query", json=params)
+            if response.status_code == 500:
+                sql_problems = response.json()["message"].replace("\n\n", "\n")
+                if "OperationalError" in sql_problems:
+                    # Just try again - consdb to FastAPI fell asleep?
+                    logger.info(
+                        f"Consdb Operational error at "
+                        f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')} "
+                        f"- trying again."
+                    )
+                    response = await self.async_client.post("/query", json=params)
+            response.raise_for_status()
+        except httpx.RequestError as exc:
+            logger.error(f"An error occurred while requesting {exc.request.url!r}.")
+            logger.error(
+                f"Error at UTC time {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+        except httpx.HTTPStatusError as exc:
+            # This might be a problem with the server closing the connection
+            # Or it might be a problem with the sql query.
+            # All messages from the database are in the response.
+            logger.error(f"Error response {exc.response.status_code} while requesting {exc.request.url!r}.")
+            try:
+                sql_problems = response.json()["message"].replace("\n\n", "\n")
+                logger.error(f"{sql_problems}")
+            except Exception:
+                pass
+            logger.error(
+                f"Error at UTC time {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+        if response.status_code != 200:
+            messages = dict()
+        else:
+            messages = response.json()
+        if len(messages) > 0:
+            results = self._to_pandas(messages)
         else:
             results = pd.DataFrame([])
         return results
@@ -291,7 +390,7 @@ class ConsDbSql(ConsDb):
     -----
     Credentials must be available in ~/.lsst/postgres-credentials.txt
 
-    For access external to the USDF or summit, a different access method must
+    For access external to the USDF, base or summit, a different method must
     be used.
     """
 
@@ -342,4 +441,12 @@ class ConsDbSql(ConsDb):
         except ProgrammingError as e:
             self.conn.rollback()
             logger.error(e)
+            result = pd.DataFrame([])
         return result
+
+    async def async_query(self, query: str) -> pd.DataFrame:
+        """The ConsDbSql client uses sqlalchemy + pandas.read_sql.
+        Async queries are unavailable.
+        """
+        logger.error("Using sqlalchemy + pandas; async unavailable.")
+        raise NotImplementedError
