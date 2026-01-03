@@ -9,6 +9,7 @@ import pandas as pd
 import pyvo
 from astropy.time import Time
 from pyvo.dal import DALQueryError
+from json import JSONDecodeError
 
 try:
     import sqlalchemy
@@ -86,6 +87,7 @@ class ConsDb:
         constraint_str = "and".join(constraint)
         if len(constraint_str) > 0:
             query = query + f" where {constraint_str}"
+        query += " order by visit1.visit_id"
         logger.debug(f"Query executed: {query}")
         visits = self.query(query)
 
@@ -278,15 +280,20 @@ class ConsDbFastAPI(ConsDb):
             # We add this little test here because sometimes the consdb
             # FastAPI connections to the consdb itself fall asleep.
             if response.status_code == 500:
-                sql_problems = response.json()["message"].replace("\n\n", "\n")
-                if "OperationalError" in sql_problems:
-                    # Just try again - consdb to FastAPI fell asleep?
-                    logger.info(
-                        f"Consdb Operational error at "
-                        f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')} "
-                        f"- trying again."
-                    )
-                    response = self.httpx_client.post("/query", json=params)
+                try:
+                    sql_problems = response.json()["message"].replace("\n\n", "\n")
+                    if "OperationalError" in sql_problems:
+                        # Just try again - consdb to FastAPI fell asleep?
+                        logger.info(
+                            f"Consdb Operational error at "
+                            f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')} "
+                            f"- trying again."
+                        )
+                        response = self.httpx_client.post("/query", json=params)
+                except JSONDecodeError:
+                    error_message = "SQL query error, failing in sqlalchemy not postgres."
+                    error_message += " A common issue might be using a single % for wildcards, instead of %%."
+                    logger.error(error_message)
             response.raise_for_status()
         except httpx.RequestError as exc:
             error_message = f"An error occurred while requesting {exc.request.url!r}.\n"
