@@ -185,12 +185,6 @@ class ConsDbTap(ConsDb):
         -------
         results : `pd.DataFrame`
         """
-        # try:
-        #     results = self.tap.run_async(query)
-        #     results = results.to_table().to_pandas()
-        # except DALQueryError as e:
-        #     logger.error(e)
-        #     results = pd.DataFrame([])
         job = self.tap.submit_job(query)
         job.run()
         job.wait(phases=["COMPLETED", "ERROR", "ABORTED"], timeout=self.query_timeout)
@@ -281,6 +275,8 @@ class ConsDbFastAPI(ConsDb):
         params = {"query": query}
         try:
             response = self.httpx_client.post("/query", json=params)
+            # We add this little test here because sometimes the consdb
+            # FastAPI connections to the consdb itself fall asleep.
             if response.status_code == 500:
                 sql_problems = response.json()["message"].replace("\n\n", "\n")
                 if "OperationalError" in sql_problems:
@@ -293,23 +289,23 @@ class ConsDbFastAPI(ConsDb):
                     response = self.httpx_client.post("/query", json=params)
             response.raise_for_status()
         except httpx.RequestError as exc:
-            logger.error(f"An error occurred while requesting {exc.request.url!r}.")
-            logger.error(
-                f"Error at UTC time {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}"
-            )
+            error_message = f"An error occurred while requesting {exc.request.url!r}.\n"
+            error_message += (f"Error at UTC time "
+                               f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.error(error_message)
         except httpx.HTTPStatusError as exc:
             # This might be a problem with the server closing the connection
             # Or it might be a problem with the sql query.
             # All messages from the database are in the response.
-            logger.error(f"Error response {exc.response.status_code} while requesting {exc.request.url!r}.")
+            error_message = f"Error response {exc.response.status_code} while requesting {exc.request.url!r}.\n"
             try:
                 sql_problems = response.json()["message"].replace("\n\n", "\n")
-                logger.error(f"{sql_problems}")
+                error_message += f"{sql_problems}\n"
             except Exception:
                 pass
-            logger.error(
-                f"Error at UTC time {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}"
-            )
+            error_message += (f"Error at UTC time "
+                              f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.error(error_message)
         if response.status_code != 200:
             messages = dict()
         else:
@@ -347,23 +343,23 @@ class ConsDbFastAPI(ConsDb):
                     response = await self.async_client.post("/query", json=params)
             response.raise_for_status()
         except httpx.RequestError as exc:
-            logger.error(f"An error occurred while requesting {exc.request.url!r}.")
-            logger.error(
-                f"Error at UTC time {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}"
-            )
+            error_message = f"An error occurred while requesting {exc.request.url!r}.\n"
+            error_message += (f"Error at UTC time "
+                              f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.error(error_message)
         except httpx.HTTPStatusError as exc:
             # This might be a problem with the server closing the connection
             # Or it might be a problem with the sql query.
             # All messages from the database are in the response.
-            logger.error(f"Error response {exc.response.status_code} while requesting {exc.request.url!r}.")
+            error_message = f"Error response {exc.response.status_code} while requesting {exc.request.url!r}.\n"
             try:
                 sql_problems = response.json()["message"].replace("\n\n", "\n")
-                logger.error(f"{sql_problems}")
+                error_message += f"{sql_problems}\n"
             except Exception:
                 pass
-            logger.error(
-                f"Error at UTC time {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}"
-            )
+            error_message += (f"Error at UTC time "
+                              f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.error(error_message)
         if response.status_code != 200:
             messages = dict()
         else:
