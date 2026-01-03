@@ -47,7 +47,7 @@ def get_scheduler_configs(
     t_end: Time,
     efd_client: InfluxQueryClient,
     obsenv_client: InfluxQueryClient,
-    queue_index: int | None = None,
+    queue_index: int | list[int] | None = None,
 ) -> pd.DataFrame:
     """Return information needed to recreate FBS configuration.
 
@@ -195,8 +195,7 @@ def get_scheduler_configs(
 
     # Also find the obsenv
     topic = "lsst.obsenv.summary"
-    fields = ["summit_extras", "summit_utils", "ts_standardscripts", "ts_externalscripts",
-              "ts_config_ocs"]
+    fields = ["summit_extras", "summit_utils", "ts_standardscripts", "ts_externalscripts", "ts_config_ocs"]
     obsenv_start: pd.DataFrame = obsenv_client.select_top_n(
         topic, fields, num=1, time_cut=Time(sched_config.index[0])
     )
@@ -206,8 +205,7 @@ def get_scheduler_configs(
         logger.warning("Could not find obsenv values.")
         # This shouldn't happen, but could before obsenv was implemented.
         # We need something to fill in for work below.
-        bad_obsenv0 = [(t_start - TimeDelta(1, format="mjd") * 3).utc.datetime] + ["unknown" for f in
-                                                                                   fields]
+        bad_obsenv0 = [(t_start - TimeDelta(1, format="mjd") * 3).utc.datetime] + ["unknown" for f in fields]
         bad_obsenv1 = [t_start.utc.datetime] + ["unknown" for f in fields]
         obsenv = pd.DataFrame([bad_obsenv0, bad_obsenv1], columns=["time"] + fields)
         obsenv.set_index("time", inplace=True)
@@ -224,14 +222,14 @@ def get_scheduler_configs(
     obsenv["description"] = "ts_config_ocs: " + obsenv["ts_config_ocs"]
     # Build compact config string
     obsenv["config"] = (
-            "ts_standardscripts: "
-            + obsenv["ts_standardscripts"]
-            + "; ts_externalscripts: "
-            + obsenv["ts_externalscripts"]
-            + "; summit_utils: "
-            + obsenv["summit_utils"]
-            + "; summit_extras: "
-            + obsenv["summit_extras"]
+        "ts_standardscripts: "
+        + obsenv["ts_standardscripts"]
+        + "; ts_externalscripts: "
+        + obsenv["ts_externalscripts"]
+        + "; summit_utils: "
+        + obsenv["summit_utils"]
+        + "; summit_extras: "
+        + obsenv["summit_extras"]
     )
     # The obsenv is shared across all scriptqueues.
     obsenv["salIndex"] = CategoryIndexExtended.AUTOLOG_OTHER.value

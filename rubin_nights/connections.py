@@ -5,9 +5,9 @@ import os
 from urllib.parse import urlparse
 
 from .consdb_query import ConsDbFastAPI, ConsDbTap
-from .reference_values import API_ENDPOINTS
 from .influx_query import InfluxQueryClient
 from .logging_query import ExposureLogClient, NarrativeLogClient, NightReportClient
+from .reference_values import API_ENDPOINTS
 
 __all__ = ["get_access_token", "get_clients", "usdf_lfa"]
 

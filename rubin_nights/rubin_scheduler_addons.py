@@ -292,8 +292,8 @@ def add_model_slew_times(
                 tma["settle_time"] = model_settle
                 # Change speeds on non-ideal kinematic model
                 kinematic_model.setup_telescope(**tma)
-                tma_alt_max[visitid] = tma['altitude_maxspeed']
-                tma_az_max[visitid] = tma['azimuth_maxspeed']
+                tma_alt_max[visitid] = tma["altitude_maxspeed"]
+                tma_az_max[visitid] = tma["azimuth_maxspeed"]
                 if np.isnan(v.s_ra) | np.isnan(v.s_dec):
                     model_slewtimes[visitid] = np.nan
                     model_slewtimes_ideal[visitid] = np.nan
@@ -344,7 +344,7 @@ def add_model_slew_times(
 
     slewing = pd.DataFrame(
         [model_slewtimes, model_slewtimes_ideal, tma_alt_max, tma_az_max],
-        index=["slew_model", "slew_model_ideal", "tma_alt_maxv", "tma_az_maxv"]
+        index=["slew_model", "slew_model_ideal", "tma_alt_maxv", "tma_az_maxv"],
     ).T
     if "visit_gap" in visits:
         slewing["model_gap"] = visits.visit_gap - slewing.slew_model

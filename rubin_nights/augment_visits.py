@@ -6,9 +6,9 @@ import numpy as np
 import pandas as pd
 from astropy.coordinates import SkyCoord
 
+from .reference_values import BAD_VISITS_LSSTCAM, BAD_VISITS_LSSTCOMCAM
 from .rubin_scheduler_addons import add_rubin_scheduler_cols
 from .rubin_sim_addons import add_rubin_sim_cols
-from .reference_values import BAD_VISITS_LSSTCAM, BAD_VISITS_LSSTCOMCAM
 
 logger = logging.getLogger(__name__)
 

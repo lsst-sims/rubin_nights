@@ -2,6 +2,7 @@
 
 import datetime
 import logging
+from json import JSONDecodeError
 
 import httpx
 import numpy as np
@@ -9,7 +10,6 @@ import pandas as pd
 import pyvo
 from astropy.time import Time
 from pyvo.dal import DALQueryError
-from json import JSONDecodeError
 
 try:
     import sqlalchemy
@@ -297,21 +297,25 @@ class ConsDbFastAPI(ConsDb):
             response.raise_for_status()
         except httpx.RequestError as exc:
             error_message = f"An error occurred while requesting {exc.request.url!r}.\n"
-            error_message += (f"Error at UTC time "
-                               f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}")
+            error_message += (
+                f"Error at UTC time " f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}"
+            )
             logger.error(error_message)
         except httpx.HTTPStatusError as exc:
             # This might be a problem with the server closing the connection
             # Or it might be a problem with the sql query.
             # All messages from the database are in the response.
-            error_message = f"Error response {exc.response.status_code} while requesting {exc.request.url!r}.\n"
+            error_message = (
+                f"Error response {exc.response.status_code} while requesting {exc.request.url!r}.\n"
+            )
             try:
                 sql_problems = response.json()["message"].replace("\n\n", "\n")
                 error_message += f"{sql_problems}\n"
             except Exception:
                 pass
-            error_message += (f"Error at UTC time "
-                              f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}")
+            error_message += (
+                f"Error at UTC time " f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}"
+            )
             logger.error(error_message)
         if response.status_code != 200:
             messages = dict()
@@ -351,21 +355,25 @@ class ConsDbFastAPI(ConsDb):
             response.raise_for_status()
         except httpx.RequestError as exc:
             error_message = f"An error occurred while requesting {exc.request.url!r}.\n"
-            error_message += (f"Error at UTC time "
-                              f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}")
+            error_message += (
+                f"Error at UTC time " f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}"
+            )
             logger.error(error_message)
         except httpx.HTTPStatusError as exc:
             # This might be a problem with the server closing the connection
             # Or it might be a problem with the sql query.
             # All messages from the database are in the response.
-            error_message = f"Error response {exc.response.status_code} while requesting {exc.request.url!r}.\n"
+            error_message = (
+                f"Error response {exc.response.status_code} while requesting {exc.request.url!r}.\n"
+            )
             try:
                 sql_problems = response.json()["message"].replace("\n\n", "\n")
                 error_message += f"{sql_problems}\n"
             except Exception:
                 pass
-            error_message += (f"Error at UTC time "
-                              f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}")
+            error_message += (
+                f"Error at UTC time " f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}"
+            )
             logger.error(error_message)
         if response.status_code != 200:
             messages = dict()
