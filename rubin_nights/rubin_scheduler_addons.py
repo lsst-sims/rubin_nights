@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 PLATESCALE = 0.2
 GAUSSIAN_FWHM_OVER_SIGMA: float = 2.0 * np.sqrt(2.0 * np.log(2.0))
-SKIPTIME = 300.0 / 60 / 60 / 24  # a big slew in JD/days
+SKIPTIME = 600.0 / 60 / 60 / 24  # a big slew in JD/days
 
 __all__ = ["add_rubin_scheduler_cols", "add_model_slew_times"]
 
@@ -276,6 +276,8 @@ def add_model_slew_times(
 
     model_slewtimes = {}  # current performance model
     model_slewtimes_ideal = {}  # ideal performance model
+    tma_alt_max = {}
+    tma_az_max = {}
 
     for dayobs in visits.day_obs.unique():
         night_visits = visits.query("day_obs == @dayobs").sort_values(by="seq_num")
@@ -290,7 +292,8 @@ def add_model_slew_times(
                 tma["settle_time"] = model_settle
                 # Change speeds on non-ideal kinematic model
                 kinematic_model.setup_telescope(**tma)
-
+                tma_alt_max[visitid] = tma['altitude_maxspeed']
+                tma_az_max[visitid] = tma['azimuth_maxspeed']
                 if np.isnan(v.s_ra) | np.isnan(v.s_dec):
                     model_slewtimes[visitid] = np.nan
                     model_slewtimes_ideal[visitid] = np.nan
@@ -340,7 +343,8 @@ def add_model_slew_times(
                         model_slewtimes_ideal[visitid] = max(slewtime[0], min_overhead)
 
     slewing = pd.DataFrame(
-        [model_slewtimes, model_slewtimes_ideal], index=["slew_model", "slew_model_ideal"]
+        [model_slewtimes, model_slewtimes_ideal, tma_alt_max, tma_az_max],
+        index=["slew_model", "slew_model_ideal", "tma_alt_maxv", "tma_az_maxv"]
     ).T
     if "visit_gap" in visits:
         slewing["model_gap"] = visits.visit_gap - slewing.slew_model
