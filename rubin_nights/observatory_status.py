@@ -28,14 +28,15 @@ def get_dome_open_close(
     efd_client
         Sync EFD client.
     with_sunrise_sunset
-        If True, add -12 degree sunset and sunrise columns.
+        If True (default), add -12 degree sunset and sunrise columns.
 
     Returns
     -------
     dome_open_close : `pd.DataFrame`
         Dataframe containing pairs of open/close datetimes + elapsed time
         for each dome-open period in each day_obs.
-        Note that the dome open close times are in TAI.
+        Note that the dome open/close times as well as sunset/sunrise
+        are in UTC, including utc timescale.
 
     Notes
     -----
@@ -189,10 +190,10 @@ def mtm1m3_slewflag_times(t_start: Time, t_end: Time, efd_client: InfluxQueryCli
         Dataframe containing groupId, scriptSalIndex, and mt_slew_time.
     """
     # Get MTM1M3 slew flags
-    slew_start = efd_client.select_time_series(
+    slew_start: pd.DataFrame = efd_client.select_time_series(
         "lsst.sal.MTM1M3.command_setSlewFlag", ["private_identity"], t_start, t_end
     )
-    slew_end = efd_client.select_time_series(
+    slew_end: pd.DataFrame = efd_client.select_time_series(
         "lsst.sal.MTM1M3.command_clearSlewFlag", ["private_identity"], t_start, t_end
     )
     # We can only match the "Script:" entries (with script salindex values).
@@ -244,7 +245,7 @@ def mtm1m3_slewflag_times(t_start: Time, t_end: Time, efd_client: InfluxQueryCli
 
     # Get nextVisit events as well, to get groupId.
     topic = "lsst.sal.ScriptQueue.logevent_nextVisit"
-    nextvisits = efd_client.select_time_series(topic, "*", t_start, t_end, index=1)
+    nextvisits: pd.DataFrame = efd_client.select_time_series(topic, "*", t_start, t_end, index=1)
     # Multiple next visit events can be issued for the same target, so
     # group next visit events on script salindex if the target is the same.
     # Only the last groupId will be the acquired exposure.
@@ -272,8 +273,8 @@ def get_rotator_limits(t_start: Time, t_end: Time, efd_client: InfluxQueryClient
         "drivesEnabled": "drivesEnabled",
     }
     fields = list(rot_mapping.keys())
-    rot_start = efd_client.select_top_n(topic, fields, num=1, time_cut=t_start)
-    rot = efd_client.select_time_series(topic, fields, t_start, t_end)
+    rot_start: pd.DataFrame = efd_client.select_top_n(topic, fields, num=1, time_cut=t_start)
+    rot: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
     rot = pd.concat([rot_start, rot])
     rot.query("drivesEnabled == 1.0", inplace=True)
     rot.rename(rot_mapping, axis=1, inplace=True)
@@ -302,8 +303,8 @@ def get_tma_limits(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) ->
         "maxMoveJerk": "altitude_jerk",
     }
     fields = list(el_mapping.keys())
-    elevation_start = efd_client.select_top_n(topic, fields, num=1, time_cut=t_start)
-    elevation = efd_client.select_time_series(topic, fields, t_start, t_end)
+    elevation_start: pd.DataFrame = efd_client.select_top_n(topic, fields, num=1, time_cut=t_start)
+    elevation: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
     elevation = pd.concat([elevation_start, elevation])
     elevation.rename(el_mapping, axis=1, inplace=True)
     # Get azimuth limits

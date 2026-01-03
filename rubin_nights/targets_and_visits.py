@@ -9,7 +9,6 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "targets_and_visits",
-    "flag_potential_bad_visits",
 ]
 
 
@@ -248,59 +247,3 @@ def targets_and_visits(
     ]
 
     return vt, cols, to, nv, visits
-
-
-def flag_potential_bad_visits(
-    target_visits: pd.DataFrame, extinction: float = 1.5, no_quicklook: bool = True
-) -> list[str]:
-    """Flag potential bad visits within the target_visits dataframe.
-
-    Parameters
-    ----------
-    target_visits
-        Dataframe containing information on the linked
-        target-observation-visit content, such as
-        from `targets_and_visits`.
-    extinction
-        The magnitudes of extinction to allow before considering a visit
-        "bad". This can indicate cloud extinction; however mini-donuts
-        or other problems with an observation such as a minor tracking glitch
-        can also show up as an offset between the measured and predicted
-        zeropoint, just as if it were cloud extinction.
-    no_quicklook
-        Flag a visit as bad if there was no quicklook information.
-        Missing quicklook can indicate the visit failed to process, which
-        can be an indicator of a bad visit with giant donuts.
-        However, missing quicklook can also just indicate that Rapid Analysis
-        could not reach the ConsDB, or that it did not have calibration data,
-        or that the pointing simply has too many or too few stars.
-
-    Returns
-    -------
-    flagged_visit_ids : `list` [ `str` ]
-        The list of visit_ids corresponding to the flagged visits.
-
-    Notes
-    -----
-    Visits are always marked "bad" if the target event did not match with
-    an observation event. This could happen for rare other reasons, but
-    almost always indicates that the script failed due to a fault in the
-    observatory, such as a loss of tracking or rotator.
-    """
-    quicklook_missing = np.where(np.isnan(target_visits.zero_point_median) & (target_visits.visit_id > 0))[0]
-    big_zp_offset = np.where(
-        (target_visits.zero_point_1s_pred.values - target_visits.zero_point_1s.values) > extinction
-    )[0]
-    failed_obs = np.where(np.isnan(target_visits.time_observation.values) & (target_visits.visit_id > 0))[0]
-    issues = np.concatenate([big_zp_offset, failed_obs])
-    if no_quicklook:
-        issues = np.concatenate([quicklook_missing, issues])
-    issues = np.sort(issues)
-    issues = np.unique(issues)
-    logger.debug(
-        f"Found {len(quicklook_missing)} visits missing quicklook,"
-        f" {len(big_zp_offset)} visits with big zeropoint offsets/extinction,"
-        f" and {len(failed_obs)} visits with missing observation events,"
-        f" out of a total of {len(target_visits)} visits."
-    )
-    return list(target_visits.iloc[issues]["visit_id"].values)

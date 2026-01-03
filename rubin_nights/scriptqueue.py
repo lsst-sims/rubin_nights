@@ -47,15 +47,14 @@ def get_scheduler_configs(
     t_end: Time,
     efd_client: InfluxQueryClient,
     obsenv_client: InfluxQueryClient,
-    queue_index: int | None = None,
+    queue_index: int | list[int] | None = None,
 ) -> pd.DataFrame:
     """Return information needed to recreate FBS configuration.
 
-    This requires checking the obsenv (`lsst.obsenv.summary`)
-    to find the version of ts_config_ocs in use,
+    This requires checking
     the EFD (`lsst.sal.Scheduler.logevent_dependenciesVersions`)
     to find the version of rubin_scheduler and dependencies,
-    and the EFD (`lsst.sal.Scheduler.logevent_configureApplied`)
+    and the EFD (`lsst.sal.Scheduler.logevent_configurationApplied`)
     to find the specific FBS configuration file in use.
 
     Searches both the time within t_start to t_end, as well as the last
@@ -76,7 +75,7 @@ def get_scheduler_configs(
         A sync EFD client pointed to the obsenv database.
     queue_index
         The salIndex of a specific queue (1=Simonyi, 2=Auxtel, 3=OCS).
-        If None, queries all queues, but the initial state may be missed.
+        If None, queries Simonyi and Auxtel to ensure we get these configs.
 
     Returns
     -------
@@ -85,42 +84,19 @@ def get_scheduler_configs(
         Some columns are compacted into single strings, so
         the entire dataframe can fit into a limited set of columns.
     """
-    # The configurationApplied should happen with every scheduler Enable
-    topic = "lsst.sal.Scheduler.logevent_configurationApplied"
-    fields = ["SchedulerId", "configurations", "salIndex", "schemaVersion", "url", "version"]
-    conf_start = efd_client.select_top_n(topic, fields, num=1, time_cut=t_start, index=queue_index)
-    conf = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue_index)
-    conf = pd.concat([conf_start, conf])
-    if len(conf) > 0:
+    if queue_index is None:
+        queue_index = [1, 2]
+    elif isinstance(queue_index, int):
+        queue_index = [queue_index]
 
-        def strip_repo(x: pd.Series) -> pd.Series:
-            return x.url.split("/")[-3]
+    def strip_repo(x: pd.Series) -> pd.Series:
+        return x.url.split("/")[-3]
 
-        def strip_version(x: pd.Series) -> pd.Series:
-            return x.version.replace("heads/", "")
+    def strip_version(x: pd.Series) -> pd.Series:
+        return x.version.replace("heads/", "")
 
-        def strip_yaml(x: pd.Series) -> pd.Series:
-            return x.configurations.split(",")[-1]
-
-        config_repo = conf.apply(strip_repo, axis=1)
-        config_version = conf.apply(strip_version, axis=1)
-        config_yaml = conf.apply(strip_yaml, axis=1)
-        configs = pd.DataFrame(
-            [config_repo, config_version, config_yaml],
-            columns=conf.index,
-            index=["config_repo", "config_commit", "config_yaml"],
-        ).T
-        conf = pd.merge(conf, configs, left_index=True, right_index=True)
-    if len(conf) == 0:
-        logger.warning("Could not find scheduler configuration.")
-        bad_conf = [t_start.utc.datetime] + ["unknown" for f in fields]
-        conf = pd.DataFrame(
-            bad_conf,
-            columns=["time"] + fields + ["config_repo", "config_commit", "config_yaml"],
-        )
-        conf.set_index("time", inplace=True)
-        conf.index = conf.index.tz_localize("UTC")
-    conf["classname"] = "Scheduler configuration"
+    def strip_yaml(x: pd.Series) -> pd.Series:
+        return x.configurations.split(",")[-1]
 
     def build_link_to_config(x: pd.Series) -> str:
         desc_string = f"{x.config_yaml}  <br> {x.config_repo} {x.config_commit}"
@@ -130,15 +106,100 @@ def get_scheduler_configs(
         url = f'<a href="{link}" target="_blank" rel="noreferrer noopener">{desc_string}</a>'
         return url
 
-    conf["description"] = conf.apply(build_link_to_config, axis=1)
-    conf.rename({"configurations": "config"}, axis=1, inplace=True)
-    conf["script_salIndex"] = -1
+    sched_config_list = []
+    for queue in queue_index:
+        # The configurationApplied should happen with every scheduler Enable
+        topic = "lsst.sal.Scheduler.logevent_configurationApplied"
+        fields = ["SchedulerId", "configurations", "salIndex", "schemaVersion", "url", "version"]
+        conf_start: pd.DataFrame = efd_client.select_top_n(
+            topic, fields, num=1, time_cut=t_start, index=queue
+        )
+        conf: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue)
+        conf = pd.concat([conf_start, conf])
+        if len(conf) > 0:
+            config_repo = conf.apply(strip_repo, axis=1)
+            config_version = conf.apply(strip_version, axis=1)
+            config_yaml = conf.apply(strip_yaml, axis=1)
+            configs = pd.DataFrame(
+                [config_repo, config_version, config_yaml],
+                columns=conf.index,
+                index=["config_repo", "config_commit", "config_yaml"],
+            ).T
+            conf = pd.merge(conf, configs, left_index=True, right_index=True)
+
+        if len(conf) == 0:
+            logger.warning("Could not find scheduler configuration.")
+            bad_conf = [t_start.utc.datetime] + ["unknown" for f in fields]
+            conf = pd.DataFrame(
+                bad_conf,
+                columns=["time"] + fields + ["config_repo", "config_commit", "config_yaml"],
+            )
+            conf.set_index("time", inplace=True)
+            conf.index = conf.index.tz_localize("UTC")
+        conf["classname"] = "Scheduler configuration"
+
+        conf["description"] = conf.apply(build_link_to_config, axis=1)
+        conf.rename({"configurations": "config"}, axis=1, inplace=True)
+        conf["script_salIndex"] = -1
+
+        # Scheduler dependency information - updated independently of obsenv.
+        topic = "lsst.sal.Scheduler.logevent_dependenciesVersions"
+        fields = [
+            "cloudModel",
+            "downtimeModel",
+            "seeingModel",
+            "skybrightnessModel",
+            "observatoryLocation",
+            "observatoryModel",
+            "scheduler",
+            "salIndex",
+            "version",
+        ]
+        deps_start: pd.DataFrame = efd_client.select_top_n(
+            topic, fields, num=1, time_cut=Time(conf.index[0]), index=queue
+        )
+        deps: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue)
+        deps = pd.concat([deps_start, deps])
+        if len(deps) == 0:
+            logger.warning("Could not find scheduler dependencies.")
+            bad_deps = [t_start.utc.datetime] + ["unknown" for f in fields]
+            deps = pd.DataFrame(bad_deps, columns=["time"] + fields)
+            deps.set_index("time", inplace=True)
+            deps.index = deps.index.tz_localize("UTC")
+
+        # Reconfigure output to fit into script_status fields
+        deps["classname"] = "Scheduler dependencies"
+
+        # FBS version information isn't propagated - use seeingModel
+        def fbs_version(x: pd.Series) -> str:
+            return f"{x.scheduler} {x.seeingModel}"
+
+        deps["description"] = deps.apply(fbs_version, axis=1)
+        models = [c for c in deps.columns if "observatory" in c or "Model" in c]
+
+        def build_compact_config_string(x: pd.Series, models: list[str]) -> str:
+            dep_string = ""
+            for m in models:
+                dep_string += f"{m}: {x[m]}, "
+            dep_string = dep_string[:-2]
+            return dep_string
+
+        deps["config"] = deps.apply(build_compact_config_string, args=[models], axis=1)
+        deps["script_salIndex"] = -1
+
+        # Combine results
+        sched_config = pd.concat([deps, conf])
+        sched_config_list.append(sched_config)
+
+    sched_config = pd.concat(sched_config_list)
 
     # Also find the obsenv
     topic = "lsst.obsenv.summary"
     fields = ["summit_extras", "summit_utils", "ts_standardscripts", "ts_externalscripts", "ts_config_ocs"]
-    obsenv_start = obsenv_client.select_top_n(topic, fields, num=1, time_cut=Time(conf.index[0]))
-    obsenv = obsenv_client.select_time_series(topic, fields, Time(conf.index[0]), t_end)
+    obsenv_start: pd.DataFrame = obsenv_client.select_top_n(
+        topic, fields, num=1, time_cut=Time(sched_config.index[0])
+    )
+    obsenv: pd.DataFrame = obsenv_client.select_time_series(topic, fields, Time(sched_config.index[0]), t_end)
     obsenv = pd.concat([obsenv_start, obsenv])
     if len(obsenv) == 0:
         logger.warning("Could not find obsenv values.")
@@ -174,53 +235,7 @@ def get_scheduler_configs(
     obsenv["salIndex"] = CategoryIndexExtended.AUTOLOG_OTHER.value
     obsenv["script_salIndex"] = -1
 
-    # Scheduler dependency information - updated independently of obsenv.
-    topic = "lsst.sal.Scheduler.logevent_dependenciesVersions"
-    fields = [
-        "cloudModel",
-        "downtimeModel",
-        "seeingModel",
-        "skybrightnessModel",
-        "observatoryLocation",
-        "observatoryModel",
-        "scheduler",
-        "salIndex",
-        "version",
-    ]
-    deps_start = efd_client.select_top_n(
-        topic, fields, num=1, time_cut=Time(conf.index[0]), index=queue_index
-    )
-    deps = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue_index)
-    deps = pd.concat([deps_start, deps])
-    if len(deps) == 0:
-        logger.warning("Could not find scheduler dependencies.")
-        bad_deps = [t_start.utc.datetime] + ["unknown" for f in fields]
-        deps = pd.DataFrame(bad_deps, columns=["time"] + fields)
-        deps.set_index("time", inplace=True)
-        deps.index = deps.index.tz_localize("UTC")
-
-    # Reconfigure output to fit into script_status fields
-    deps["classname"] = "Scheduler dependencies"
-
-    # FBS version information isn't propagated - use seeingModel
-    def fbs_version(x: pd.Series) -> str:
-        return f"{x.scheduler} {x.seeingModel}"
-
-    deps["description"] = deps.apply(fbs_version, axis=1)
-    models = [c for c in deps.columns if "observatory" in c or "Model" in c]
-
-    def build_compact_config_string(x: pd.Series, models: list[str]) -> str:
-        dep_string = ""
-        for m in models:
-            dep_string += f"{m}: {x[m]}, "
-        dep_string = dep_string[:-2]
-        return dep_string
-
-    deps["config"] = deps.apply(build_compact_config_string, args=[models], axis=1)
-    deps["script_salIndex"] = -1
-
-    # Combine results
-    sched_config = pd.concat([deps, conf, obsenv])
+    sched_config = pd.concat([sched_config, obsenv])
 
     # Drop columns, add timestamps and state
     cols = ["classname", "description", "config", "salIndex", "script_salIndex"]
@@ -263,7 +278,7 @@ def get_script_stream(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
     # The description topic gives a more succinct human name to the scripts
     topic = "lsst.sal.Script.logevent_description"
     fields = ["classname", "description", "salIndex"]
-    scriptdescription = efd_client.select_time_series(topic, fields, t_start, t_end)
+    scriptdescription: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
     scriptdescription.rename({"salIndex": "script_salIndex"}, axis=1, inplace=True)
 
     # This gets us more information about the script parameters,
@@ -271,7 +286,7 @@ def get_script_stream(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
     topic = "lsst.sal.Script.command_configure"
     fields = ["blockId", "config", " executionId", "salIndex"]
     # note blockId is only filled for JSON BLOCK activities
-    scriptconfig = efd_client.select_time_series(topic, fields, t_start, t_end)
+    scriptconfig: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
     scriptconfig.rename({"salIndex": "script_salIndex"}, axis=1, inplace=True)
 
     # Merge these together on script_salIndex which is unique over tinterval
@@ -337,7 +352,7 @@ def get_script_state(
     ]
     # Providing an integer salIndex will restrict this query to a single queue,
     # but None will query all queues.
-    scripts = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue_index)
+    scripts: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue_index)
     scripts.rename({"scriptSalIndex": "script_salIndex"}, axis=1, inplace=True)
     if len(scripts) == 0:
         logger.info(f"Found 0 script events in {t_start.utc.iso} to {t_end.utc.iso}.")
@@ -426,7 +441,7 @@ def get_script_status(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
     topic = "lsst.sal.ScriptQueue.logevent_summaryState"
     fields = ["salIndex", "summaryState"]
     # Were there breaks in this queue?
-    dd = efd_client.select_time_series(topic, fields, t_start, t_end)
+    dd: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
     if len(dd) == 0:
         restart_events = 0
     else:
@@ -457,15 +472,15 @@ def get_script_status(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
             topic = "lsst.sal.ScriptQueue.logevent_summaryState"
             fields = ["salIndex", "summaryState"]
             # Were there breaks in this particular queue?
-            dd = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue)
-            if len(dd) == 0:
+            ddd: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue)
+            if len(ddd) == 0:
                 tstops = []
                 tintervals = [[t_start, t_end]]
             else:
-                dd["state"] = dd.apply(apply_enum, args=["summaryState", CSCState], axis=1)
-                dd["state_time"] = Time(dd.index.values)
+                ddd["state"] = ddd.apply(apply_enum, args=["summaryState", CSCState], axis=1)
+                ddd["state_time"] = Time(ddd.index.values)
 
-                tstops = dd.query('state == "ENABLED"').state_time.values
+                tstops = ddd.query('state == "ENABLED"').state_time.values
                 if len(tstops) == 0:
                     tintervals = [[t_start, t_end]]
                 if len(tstops) > 0:
@@ -675,7 +690,7 @@ def get_error_codes(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -
 
     errs = []
     for topic in err_codes:
-        df = efd_client.select_time_series(topic, ["errorCode", "errorReport"], t_start, t_end)
+        df: pd.DataFrame = efd_client.select_time_series(topic, ["errorCode", "errorReport"], t_start, t_end)
         csc = topic.replace("lsst.sal", "").replace("logevent_errorCode", "").replace(".", "")
         # Try to guess a good index for this CSC
         if csc.startswith("MT") or csc.endswith(":1"):
@@ -822,7 +837,7 @@ def get_exposure_info(
         "timestampDateEnd",
         "timestampDateObs",
     ]
-    image_acquisition_mt = efd_client.select_time_series(topic, fields, t_start, t_end)
+    image_acquisition_mt: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
     # If there were zero images in this timeperiod, just return now.
     if len(image_acquisition_mt) > 0:
         for col in [c for c in image_acquisition_mt.columns if c.startswith("timestamp")]:
@@ -851,7 +866,7 @@ def get_exposure_info(
         "timestampDateEnd",
         "timestampDateObs",
     ]
-    image_acquisition_cc = efd_client.select_time_series(topic, fields, t_start, t_end)
+    image_acquisition_cc: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
     # If there were zero images in this timeperiod, just return now.
     if len(image_acquisition_cc) > 0:
         for col in [c for c in image_acquisition_cc.columns if c.startswith("timestamp")]:
@@ -881,7 +896,7 @@ def get_exposure_info(
         "timestampDateEnd",
         "timestampDateObs",
     ]
-    image_acquisition_at = efd_client.select_time_series(topic, fields, t_start, t_end)
+    image_acquisition_at: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
     # If there were zero images in this timeperiod, just return now.
     if len(image_acquisition_at) > 0:
         for col in [c for c in image_acquisition_at.columns if c.startswith("timestamp")]:

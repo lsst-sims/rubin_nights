@@ -6,17 +6,12 @@ import numpy as np
 import pandas as pd
 from astropy.coordinates import SkyCoord
 
+from .reference_values import BAD_VISITS_LSSTCAM, BAD_VISITS_LSSTCOMCAM
 from .rubin_scheduler_addons import add_rubin_scheduler_cols
 from .rubin_sim_addons import add_rubin_sim_cols
 
 logger = logging.getLogger(__name__)
 
-BAD_VISITS_LSSTCAM = (
-    "https://raw.githubusercontent.com/lsst-dm/excluded_visits/" "refs/heads/main/LSSTCam/bad.ecsv"
-)
-BAD_VISITS_LSSTCOMCAM = (
-    "https://raw.githubusercontent.com/lsst-dm/excluded_visits/" "refs/heads/main/LSSTComCam/bad.ecsv"
-)
 
 __all__ = ["augment_visits", "fetch_excluded_visits", "exclude_visits"]
 
@@ -39,7 +34,7 @@ def augment_visits(
         cdb_{instrument}.visit1_quicklook (if available).
     instrument
         The instrument for the visits.
-        Used to calculate the approproximate rotTelPos value.
+        Used to calculate the approximate rotTelPos value.
     skip_rs_columns
         Skip calculation of any columns that require rubin_scheduler
         or rubin_sim, even if those packages are installed.
@@ -74,7 +69,7 @@ def augment_visits(
     values = dict([[e, ""] for e in ["science_program", "target_name", "observation_reason"]])
     visits.fillna(value=values, inplace=True)
 
-    # If no quicklook processing was run, these columns may be object:
+    # If NaNs were included in the return values, these columns may be object:
     columns_to_floats = [
         "s_ra",
         "s_dec",
@@ -191,3 +186,5 @@ def exclude_visits(visits: pd.DataFrame, bad_visit_ids: list[str]) -> pd.DataFra
     """
     if bad_visit_ids is not None and len(bad_visit_ids) > 0:
         return visits.query("visit_id not in @bad_visit_ids")
+    else:
+        return visits

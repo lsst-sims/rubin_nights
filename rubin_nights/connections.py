@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from .consdb_query import ConsDbFastAPI, ConsDbTap
 from .influx_query import InfluxQueryClient
 from .logging_query import ExposureLogClient, NarrativeLogClient, NightReportClient
+from .reference_values import API_ENDPOINTS
 
 __all__ = ["get_access_token", "get_clients", "usdf_lfa"]
 
@@ -143,18 +144,13 @@ def get_clients(
 
     auth = ("user", token)
 
-    api_endpoints = {
-        "usdf": "https://usdf-rsp.slac.stanford.edu",
-        "usdf-dev": "https://usdf-rsp-dev.slac.stanford.edu",
-        "summit": "https://summit-lsp.lsst.codes",
-        "base": "https://base-lsp.lsst.codes",
-    }
-
     if site is None:
         # Guess site from EXTERNAL_INSTANCE_URL (set for RSPs)
         location = os.getenv("EXTERNAL_INSTANCE_URL", "")
         if "summit-lsp" in location:
             site = "summit"
+        elif "base-lsp" in location:
+            site = "base"
         elif "usdf-rsp-dev" in location:
             site = "usdf-dev"
         elif "usdf-rsp" in location:
@@ -167,10 +163,10 @@ def get_clients(
     else:
         site = site
 
-    if site not in api_endpoints:
-        raise ValueError(f"Site {site} must be in {list(api_endpoints.keys())}")
+    if site not in API_ENDPOINTS:
+        raise ValueError(f"Site {site} must be in {list(API_ENDPOINTS.keys())}")
 
-    api_base = api_endpoints[site]
+    api_base = API_ENDPOINTS[site]
     narrative_log = NarrativeLogClient(api_base, auth)
     exposure_log = ExposureLogClient(api_base, auth)
     night_report = NightReportClient(api_base, auth)
@@ -178,7 +174,8 @@ def get_clients(
     consdb_tap = ConsDbTap(api_base, token=token)
     efd_client = InfluxQueryClient(site, db_name="efd")
     obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv")
-    sasquatch_client = InfluxQueryClient("usdfdev", db_name="lsst.dm")
+    too_client = InfluxQueryClient("summit", db_name="lsst.scimma")
+    dm_client = InfluxQueryClient("usdfdev", db_name="lsst.dm")
 
     # Be extra helpful with environment variables if using USDF for LFA
     if "usdf" in site:
@@ -195,7 +192,8 @@ def get_clients(
         "api_base": api_base,
         "efd": efd_client,
         "obsenv": obsenv_client,
-        "sasquatch": sasquatch_client,
+        "too": too_client,
+        "dm": dm_client,
         "consdb": consdb_query,
         "consdb_tap": consdb_tap,
         "narrative_log": narrative_log,
