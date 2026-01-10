@@ -393,9 +393,12 @@ class ConsDbSql(ConsDb):
     ----------
     site
         Two options for site, to connect directly to the postgres servers,
-        either "usdf" or "summit". Note that these postgres servers are
+        either 'usdf' or 'summit'. Note that these postgres servers are
         not exposed outside of the USDF or Summit; you must use
         one of the other ConsDb query services in that case.
+    connection_string
+        Optional kwarg to explicitly set the connection string instead
+        of using the defaults for 'usdf' or 'summit'.
 
     Notes
     -----
@@ -405,12 +408,7 @@ class ConsDbSql(ConsDb):
     be used.
     """
 
-    def __init__(self, site: str = "usdf") -> None:
-        # Internal to USDF the sql connection string is
-        # postgresql://usdf@usdf-summitdb-replica.slac.stanford.edu/exposurelog
-        # At summit the sql connection string is
-        # postgresql://usdf@postgresdb01.cp.lsst.org/exposurelog
-
+    def __init__(self, site: str = "usdf", connection_string: str | None = None) -> None:
         # Authentication for the native postgres connection is via
         # credentials in ~/.lsst/postgres-credentials.txt
         if not HAS_SQLALCHEMY:
@@ -420,10 +418,13 @@ class ConsDbSql(ConsDb):
             )
             return
 
-        if site.lower() == "summit":
-            self.conn_str = "postgresql+psycopg://usdf@postgresdb01.cp.lsst.org/exposurelog"
+        if connection_string is None:
+            if site.lower() == "summit":
+                self.conn_str = "postgresql+psycopg://usdf@postgresdb01.cp.lsst.org/exposurelog"
+            else:
+                self.conn_str = "postgresql+psycopg://usdf@usdf-summitdb-logical-replica-svc.sdf.slac.stanford.edu/exposurelog"
         else:
-            self.conn_str = "postgresql+psycopg://usdf@usdf-summitdb-replica.slac.stanford.edu/exposurelog"
+            self.con_str = connection_string
 
         self.engine = sqlalchemy.create_engine(self.conn_str)
         self.conn = self.engine.connect()
