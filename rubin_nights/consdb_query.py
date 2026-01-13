@@ -424,7 +424,7 @@ class ConsDbSql(ConsDb):
             else:
                 self.conn_str = "postgresql+psycopg://usdf@usdf-summitdb-logical-replica-svc.sdf.slac.stanford.edu/exposurelog"
         else:
-            self.con_str = connection_string
+            self.conn_str = connection_string
 
         self.engine = sqlalchemy.create_engine(self.conn_str)
         self.conn = self.engine.connect()
