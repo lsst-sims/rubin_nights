@@ -1,5 +1,3 @@
-"""Execute queries for the ConsDB."""
-
 import datetime
 import logging
 from json import JSONDecodeError

@@ -1,5 +1,3 @@
-"""Execute queries for logging services."""
-
 import logging
 import re
 from typing import Any, Literal

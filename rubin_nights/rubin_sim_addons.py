@@ -12,20 +12,19 @@ try:
 except ModuleNotFoundError:
     HAS_RUBIN_SIM = False
 
+from rubin_nights.reference_values import (
+    GAUSSIAN_FWHM_OVER_SIGMA,
+    PLATESCALE,
+    ZEROPOINT_OFFSETS_LSSTCAM,
+    ZEROPOINT_OFFSETS_LSSTCOMCAM,
+)
+
+# TODO import from rubin_scheduler instead
 SURVEY_START = Time("2025-11-01T12:00:00", scale="tai")
 
 __all__ = ["add_rubin_sim_cols", "consdb_to_opsim"]
 
 logger = logging.getLogger(__name__)
-
-ZEROPOINT_OFFSETS_LSSTCAM = {"u": 0.12, "g": 0.09, "r": 0.15, "i": 0.14, "z": 0.15, "y": 0.13}
-# lsstcomcam offsets based on refcats at the time of processing
-ZEROPOINT_OFFSETS_LSSTCOMCAM = {"u": 0.26, "g": -0.14, "r": -0.09, "i": -0.10, "z": -0.13, "y": -0.18}
-# lsstcomcam offsets for DP1 are probably 0 although might be
-ZEROPOINT_OFFSETS_DP1 = {"u": 0.03, "g": 0.01, "r": 0.00, "i": 0.00, "z": -0.00, "y": 0.01}
-# Approximate pixel scale
-PLATESCALE = 0.2
-GAUSSIAN_FWHM_OVER_SIGMA: float = 2.0 * np.sqrt(2.0 * np.log(2.0))
 
 
 def add_rubin_sim_cols(
