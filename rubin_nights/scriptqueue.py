@@ -665,6 +665,9 @@ def get_all_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQueryClient
         "finalScriptState",
         "timestampProcessStart",
     ]
+    if len(traceback_messages) == 0:
+        traceback_messages = pd.DataFrame(np.zeros((0, len(cols_back))), columns=cols_back)
+
     return traceback_messages[cols_back]
 
 

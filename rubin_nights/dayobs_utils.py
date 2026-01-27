@@ -10,6 +10,7 @@ __all__ = [
     "today_day_obs",
     "yesterday_day_obs",
     "time_to_day_obs",
+    "time_to_day_obs_int",
     "day_obs_str_to_int",
     "day_obs_int_to_str",
     "day_obs_to_date",
@@ -32,6 +33,12 @@ def yesterday_day_obs() -> str:
 def time_to_day_obs(time: Time) -> str:
     """Return day_obs for astropy Time, formatted as YYYY-MM-DD."""
     return Time(int(time.mjd - 0.5), format="mjd", scale="utc").iso[0:10]
+
+
+def time_to_day_obs_int(time: Time) -> int:
+    """Return day_obs for astropy Time, integer YYYYMMDD."""
+    day_obs_str = Time(int(time.mjd - 0.5), format="mjd", scale="utc").iso[0:10]
+    return day_obs_str_to_int(day_obs_str)
 
 
 def day_obs_int_to_str(day_obs: int) -> str:

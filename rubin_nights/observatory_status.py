@@ -233,7 +233,8 @@ def mtm1m3_slewflag_times(t_start: Time, t_end: Time, efd_client: InfluxQueryCli
         right_on="scriptSalIndex",
         suffixes=["_start", "_end"],
     )
-    mt_slew["mt_slew_time"] = (mt_slew["time_end"] - mt_slew["time_start"]) / np.timedelta64(1, "s")
+    mt_slew.rename({"time_end": "mtm1m3_clear", "time_start": "mtm1m3_set"}, axis=1, inplace=True)
+    mt_slew["mt_slew_time"] = (mt_slew["mtm1m3_clear"] - mt_slew["mtm1m3_set"]) / np.timedelta64(1, "s")
 
     missing = set(slew_start.scriptSalIndex.values).symmetric_difference(set(slew_end.scriptSalIndex.values))
     logging.debug(
