@@ -133,14 +133,18 @@ def add_rubin_sim_cols(
         # Calculate 1-s 1-e- zeropoints (measured and predicted)
         x.zero_point_1s = x[zero_point_col] - 2.5 * np.log10(x.exp_time)
         x.zero_point_1s_pred = predicted_zeropoint(x.band, x.airmass, 1) + predicted_zeropoint_offsets[x.band]
-        # Convert sky counts/pixel to magnitude/arcsecond^2
-        zp_sky = predicted_zeropoint_hardware(x.band, x.shut_time) + predicted_zeropoint_offsets[x.band]
         # replace PLATESCALE with x.pixel_scale_median when available
         if pixel_scale_col in x and not np.isnan(x[pixel_scale_col]):
             pixel_scale = x[pixel_scale_col]
         else:
             pixel_scale = PLATESCALE
-        x.sky_bg_mag = -2.5 * np.log10(x[sky_col] / pixel_scale**2) + zp_sky
+        # zp with hardware only would be the expected value for predicting
+        # sky counts
+        #  zp_sky = predicted_zeropoint_hardware(x.band, x.shut_time) +
+        #    predicted_zeropoint_offsets[x.band]
+        # but when converting from image measurements, probably
+        # should use measured zeropoint (including exposure time)
+        x.sky_bg_mag = -2.5 * np.log10(x[sky_col] / pixel_scale**2) + x[zero_point_col]
         return x
 
     visits = visits.apply(calc_predicted_zeropoints, axis=1)
