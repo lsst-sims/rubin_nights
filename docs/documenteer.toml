@@ -1,0 +1,11 @@
+[project]
+title = "rubin_nights"
+copyright = "2023 Association of Universities for Research in Astronomy, Inc. (AURA)"
+base_url = "https://rubin_nights.lsst.io"
+github_url = "https://github.com/lsst-sims/rubin_nights"
+
+[project.python]
+package="rubin_nights"
+
+[sphinx]
+extensions = ["sphinx.ext.viewcode", "sphinx.ext.autodoc", "sphinx.ext.autosummary"]

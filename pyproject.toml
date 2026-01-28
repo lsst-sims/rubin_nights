@@ -11,10 +11,9 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Astronomy",
  ]
 urls = {documentation = "https://rubin-nights.lsst.io", repository = "https://github.com/lsst-sims/rubin_nights" }
@@ -74,10 +73,10 @@ line_length = 110
 
 [tool.ruff]
 exclude = [
-    "__init__.py", "notebooks",
+    "__init__.py", "notebooks", "docs",
 ]
 line-length = 110
-target-version = "py312"
+target-version = "py313"
 
 [tool.ruff.lint]
 ignore = [
