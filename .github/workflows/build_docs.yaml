@@ -1,0 +1,47 @@
+name: Build and Upload Docs
+
+"on":
+  push:
+    tags:
+      - "*"
+    branches:
+      - "main"
+  pull_request: {}
+  workflow_dispatch:
+
+jobs:
+  build_sphinx_docs:
+    name: Build and upload documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: Install
+        shell: bash -l {0}
+        run: |
+          python -m pip install --upgrade pip
+          pip -m pip install . --no-deps
+          pip install "documenteer[guide]"
+
+      - name: Build docs
+        shell: bash -l {0}
+        run: |
+          cd docs
+          make html
+
+      - name: upload documentation
+        uses: lsst-sqre/ltd-upload@v1
+        with:
+          project: "rubin-nights"
+          dir: "docs/_build/html"
+          username: ${{ secrets.ltd_username }}
+          password: ${{ secrets.ltd_password }}
+
