@@ -23,9 +23,8 @@ class InfluxQueryClient:
     Parameters
     ----------
     site
-        The site to use for the EFD.
+        The site to use for the EFD, e.g. usdf, summit, base.
         Note: `usdf-dev` does not exist, and will be replaced with `usdf`.
-        Summit is untested.
     db_name
         The database to query.
         Default is "efd".
