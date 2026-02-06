@@ -109,31 +109,27 @@ def augment_visits(
         ecliptic = coordinates.transform_to("geocentricmeanecliptic")
 
     new_df = pd.DataFrame(
-        [
-            prev_visit_start,
-            prev_visit_end,
-            visit_gap,
-            ecliptic.lat.deg,
-            ecliptic.lon.deg,
-            coordinates.galactic.b.deg,
-            coordinates.galactic.l.deg,
-        ],
-        index=[
-            "prev_obs_start_mjd",
-            "prev_obs_end_mjd",
-            "visit_gap",
-            "eclip_lat",
-            "eclip_lon",
-            "gal_lat",
-            "gal_lon",
-        ],
-        columns=visits.index,
-    ).T
+        {
+            "prev_obs_start_mjd": prev_visit_start,
+            "prev_obs_end_mjd": prev_visit_end,
+            "visit_gap": visit_gap,
+            "ecliptic_lat": ecliptic.lat.deg,
+            "ecliptic_lon": ecliptic.lon.deg,
+            "galactic_lat": coordinates.galactic.b.deg,
+            "galactic_lon": coordinates.galactic.l.deg,
+        },
+        index=visits.index,
+    )
     visits = visits.merge(new_df, right_index=True, left_index=True)
 
     if not skip_rs_columns:
-        visits = add_rubin_scheduler_cols(visits, instrument)
-        visits = add_rubin_sim_cols(visits, instrument, predicted_zeropoint_offsets)
+        visits = add_rubin_scheduler_cols(visits, cols_from="visit")
+        visits = add_rubin_sim_cols(
+            visits,
+            instrument=instrument,
+            predicted_zeropoint_offsets=predicted_zeropoint_offsets,
+            cols_from="visit",
+        )
 
     return visits
 
