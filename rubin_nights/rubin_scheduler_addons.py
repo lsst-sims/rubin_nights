@@ -1,4 +1,5 @@
 import logging
+import warnings
 
 import numpy as np
 import numpy.typing as npt
@@ -7,6 +8,7 @@ from astropy.time import Time
 
 from .influx_query import InfluxQueryClient
 from .observatory_status import get_tma_limits
+from .reference_values import PLATESCALE, SIGMA_TO_FWHM
 
 try:
     from rubin_scheduler.scheduler.model_observatory import KinemModel, rotator_movement, tma_movement
@@ -25,16 +27,14 @@ except ModuleNotFoundError:
 
 logger = logging.getLogger(__name__)
 
-PLATESCALE = 0.2
-GAUSSIAN_FWHM_OVER_SIGMA: float = 2.0 * np.sqrt(2.0 * np.log(2.0))
 SKIPTIME = 600.0 / 60 / 60 / 24  # a big slew in JD/days
+CAM_FWHM = 0.207  # arcseconds
 
 __all__ = ["add_rubin_scheduler_cols", "add_model_slew_times"]
 
 
 def add_rubin_scheduler_cols(
     visits: pd.DataFrame,
-    instrument: str = "lsstcam",
     cols_from: str = "visit1_quicklook",
 ) -> pd.DataFrame:
     """Add columns that require rubin_scheduler (including Almanac)
@@ -45,9 +45,6 @@ def add_rubin_scheduler_cols(
     visits
         The visit information from cdb_{instrument}.visit1 and
         cdb_{instrument}.visit1_quicklook (if available).
-    instrument
-        The instrument for the visits.
-        Used to calculate the approproximate rotTelPos value.
     cols_from
         Use columns expected from the visit1_quicklook
         table or from the ccdvisit1_quicklook table.
@@ -86,32 +83,21 @@ def add_rubin_scheduler_cols(
             "cols_from should indicate either ccd or visit table, and start with 'ccd' or 'visit'",
         )
 
-    # Try to add seeing columns, if "psf_sigma_median" in visits.
+    # Try to add seeing columns, if psf_sigma column in visits.
     if psf_col in visits.columns:
-        seeing_cols = [
-            "fwhm_eff",
-            "fwhm_geom",
-            "fwhm_500_zenith",
-        ]
-        seeing_df = pd.DataFrame(
-            np.zeros((len(visits), len(seeing_cols))), columns=seeing_cols, index=visits.index
-        )
-
-        for n in seeing_cols:
-            if n in visits.columns:
-                visits.drop(labels=n, axis=1, inplace=True)
-
-        # replace PLATESCALE with x.pixel_scale_median when available
+        # replace PLATESCALE with x.pixel_scale_median when available and good
         pixel_scale: float | npt.NDArray
         if pixel_scale_col in visits.columns:
             pixel_scale = np.where(
                 np.isnan(visits[pixel_scale_col].values), PLATESCALE, visits[pixel_scale_col].values
             )
+            # Remove nonsense values
+            pixel_scale = np.where(visits[pixel_scale_col].values > PLATESCALE * 2.5, PLATESCALE, pixel_scale)
         else:
             pixel_scale = PLATESCALE
-        if psf_col in visits.columns:
-            seeing_df["fwhm_eff"] = visits[psf_col] * GAUSSIAN_FWHM_OVER_SIGMA * pixel_scale
-            seeing_df["fwhm_geom"] = SeeingModel.fwhm_eff_to_fwhm_geom(seeing_df.fwhm_eff)
+
+        fwhm_eff = visits[psf_col] * SIGMA_TO_FWHM * pixel_scale
+        fwhm_geom = SeeingModel.fwhm_eff_to_fwhm_geom(fwhm_eff)
 
         sev = SysEngVals()
         wavelen_corrections = np.zeros(len(visits), float)
@@ -120,62 +106,53 @@ def add_rubin_scheduler_cols(
             if band not in "ugrizy":
                 wavelen_corrections[match] = 1
             else:
-                # SeeingModel uses 0.3, but RHL says 0.2
+                # SeeingModel uses 0.3, but summit_utils (+RHL) says 0.2
                 wavelen_corrections[match] = np.power(500 / sev.eff_wavelengths[band], 0.2)
-        # SeeingModel uses 0.6 and RHL agrees
+        # SeeingModel uses 0.6 and summit_utils agrees
         airmass_corrections = np.power(visits.airmass.values, 0.6)
-        fwhm_system = 0.4
-        # leave this or not? Does system perform differently with airmass?
-        fwhm_atmo = np.sqrt((seeing_df.fwhm_eff / 1.16) ** 2 - fwhm_system**2) / 1.04
-        seeing_df["fwhm_500_zenith"] = fwhm_atmo / wavelen_corrections / airmass_corrections
+        # Note: these corrections *multiply* the 500nm/zenith to the
+        # actual airmass/bandpass values (so divide the actual values to get
+        # back to 500nm/zenith). This is the opposite sense to summit_utils.
+
+        if "aos_fwhm" in visits.columns and "donut_blur_fwhm" in visits.columns:
+            idiq_aos_cam = np.sqrt(visits.aos_fwhm**2 + CAM_FWHM**2)
+            # donut_blur (especially in y band) can be larger than fwhm
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                idiq_donut_blur = np.sqrt(fwhm_eff**2 - visits.donut_blur_fwhm**2 + CAM_FWHM**2)
+                atm_fwhm = np.sqrt(fwhm_eff**2 - idiq_aos_cam**2)
+            atm_500_zenith = atm_fwhm / wavelen_corrections / airmass_corrections
+            # Simple quadrature
+            fwhm_500_zenith = np.sqrt(atm_500_zenith**2 + idiq_aos_cam**2)
+            seeing_df = pd.DataFrame(
+                {
+                    "fwhm_eff": fwhm_eff,
+                    "fwhm_geom": fwhm_geom,
+                    "fwhm_eff_500_zenith": fwhm_500_zenith,
+                    "atm_fwhm": atm_fwhm,
+                    "atm_500_zenith": atm_500_zenith,
+                    "idiq_donut_blur": idiq_donut_blur,
+                    "idiq_aos_cam": idiq_aos_cam,
+                    "pixel_scale_est": pixel_scale,
+                }
+            )
+
+        else:
+            seeing_df = pd.DataFrame(
+                {"fwhm_eff": fwhm_eff, "fwhm_geom": fwhm_geom, "pixel_scale_est": pixel_scale}
+            )
+
+        for col in seeing_df.columns:
+            if col in visits.columns:
+                visits.drop(labels=col, axis=1, inplace=True)
 
         visits = visits.merge(seeing_df, right_index=True, left_index=True)
 
-    # Add new columns
-    new_cols = [
-        "lst",
-        "HA",
-        "approx_parallactic",
-        "moon_alt",
-        "moon_az",
-        "moon_RA",
-        "moon_Dec",
-        "moon_distance",
-        "moon_illum",
-        "sun_alt",
-        "sun_az",
-        "sun_RA",
-        "sun_Dec",
-    ]
-    new_df = pd.DataFrame(np.zeros((len(visits), len(new_cols))), columns=new_cols, index=visits.index)
-
-    for n in new_cols:
-        if n in visits.columns:
-            visits.drop(labels=n, axis=1, inplace=True)
-
-    # Add in physical rotator angle, parallactic angle
-    # (these will be added by ConsDB in the future
+    # Add more columns about sky conditions
     lsst_loc = Site("LSST")
-    times = Time(visits["obs_start_mjd"], format="mjd", scale="tai", location=lsst_loc.to_earth_location())
+    times = Time(visits.obs_start_mjd, format="mjd", scale="tai", location=lsst_loc.to_earth_location())
     lst = times.sidereal_time("mean").deg
-    new_df["lst"] = lst
-    new_df["HA"] = (visits["s_ra"] - lst) / 360 * 12 % 24
-
-    almanac = Almanac()
-
-    avals = almanac.get_sun_moon_positions(visits["exp_midpt_mjd"].values)
-    new_df["sun_alt"] = np.degrees(avals["sun_alt"])
-    new_df["sun_az"] = np.degrees(avals["sun_az"])
-    new_df["sun_RA"] = np.degrees(avals["sun_RA"])
-    new_df["sun_Dec"] = np.degrees(avals["sun_dec"])
-    new_df["moon_alt"] = np.degrees(avals["moon_alt"])
-    new_df["moon_az"] = np.degrees(avals["moon_az"])
-    new_df["moon_RA"] = np.degrees(avals["moon_RA"])
-    new_df["moon_Dec"] = np.degrees(avals["moon_dec"])
-    new_df["moon_distance"] = angular_separation(
-        new_df["moon_RA"].values, new_df["moon_Dec"].values, visits["s_ra"].values, visits["s_dec"].values
-    )
-    new_df["moon_illum"] = almanac.get_sun_moon_positions(visits["exp_midpt_mjd"].values)["moon_phase"]
+    hour_angle = (visits.s_ra - lst) / 360 * 12 % 24
 
     if "altitude" in visits and "azimuth" in visits:
         alt = visits.altitude
@@ -189,8 +166,37 @@ def add_rubin_scheduler_cols(
             visits.exp_midpt_mjd.values,
             lmst=None,
         )
-    pa = approx_altaz2pa(alt, az, lsst_loc.latitude)
-    new_df["approx_parallactic"] = pa
+    approx_parallactic = approx_altaz2pa(alt, az, lsst_loc.latitude)
+
+    almanac = Almanac()
+    almanac_values = almanac.get_sun_moon_positions(visits.exp_midpt_mjd.values)
+    moon_RA = np.degrees(almanac_values["moon_RA"])
+    moon_dec = np.degrees(almanac_values["moon_dec"])
+    moon_distance = angular_separation(moon_RA, moon_dec, visits.s_ra.values, visits.s_dec.values)
+    moon_illum = almanac.get_sun_moon_positions(visits.exp_midpt_mjd.values)["moon_phase"]
+
+    new_df = pd.DataFrame(
+        {
+            "lst": lst,
+            "HA": hour_angle,
+            "approx_parallactic": approx_parallactic,
+            "sun_alt": np.degrees(almanac_values["sun_alt"]),
+            "sun_az": np.degrees(almanac_values["sun_az"]),
+            "sun_RA": np.degrees(almanac_values["sun_RA"]),
+            "sun_Dec": np.degrees(almanac_values["sun_dec"]),
+            "moon_alt": np.degrees(almanac_values["moon_alt"]),
+            "moon_az": np.degrees(almanac_values["moon_az"]),
+            "moon_RA": moon_RA,
+            "moon_dec": moon_dec,
+            "moon_distance": moon_distance,
+            "moon_illum": moon_illum,
+        },
+        index=visits.index,
+    )
+
+    for n in new_df.columns:
+        if n in visits.columns:
+            visits.drop(labels=n, axis=1, inplace=True)
 
     visits = visits.merge(new_df, right_index=True, left_index=True)
     return visits
@@ -276,8 +282,8 @@ def add_model_slew_times(
 
     model_slewtimes = {}  # current performance model
     model_slewtimes_ideal = {}  # ideal performance model
-    tma_alt_max = {}
-    tma_az_max = {}
+    tma_alt_maxv = {}
+    tma_az_maxv = {}
 
     for dayobs in visits.day_obs.unique():
         night_visits = visits.query("day_obs == @dayobs").sort_values(by="seq_num")
@@ -292,8 +298,8 @@ def add_model_slew_times(
                 tma["settle_time"] = model_settle
                 # Change speeds on non-ideal kinematic model
                 kinematic_model.setup_telescope(**tma)
-                tma_alt_max[visitid] = tma["altitude_maxspeed"]
-                tma_az_max[visitid] = tma["azimuth_maxspeed"]
+                tma_alt_maxv[visitid] = tma["altitude_maxspeed"]
+                tma_az_maxv[visitid] = tma["azimuth_maxspeed"]
                 if np.isnan(v.s_ra) | np.isnan(v.s_dec):
                     model_slewtimes[visitid] = np.nan
                     model_slewtimes_ideal[visitid] = np.nan
@@ -343,9 +349,15 @@ def add_model_slew_times(
                         model_slewtimes_ideal[visitid] = max(slewtime[0], min_overhead)
 
     slewing = pd.DataFrame(
-        [model_slewtimes, model_slewtimes_ideal, tma_alt_max, tma_az_max],
-        index=["slew_model", "slew_model_ideal", "tma_alt_maxv", "tma_az_maxv"],
-    ).T
+        {
+            "slew_model": model_slewtimes,
+            "slew_model_ideal": model_slewtimes_ideal,
+            "tma_alt_maxv": tma_alt_maxv,
+            "tma_ax_maxv": tma_az_maxv,
+        },
+        index=visits.index,
+    )
+
     if "visit_gap" in visits:
         slewing["model_gap"] = visits.visit_gap - slewing.slew_model
 
@@ -354,9 +366,6 @@ def add_model_slew_times(
     distances = angular_separation(
         visits.s_ra[1:].values, visits.s_dec[1:].values, visits.s_ra[0:-1].values, visits.s_dec[0:-1].values
     )
-    # Special - in case there is only one value
-    if isinstance(distances, float):
-        distances = np.array([distances])
     slewing["slew_distance"] = np.concatenate([np.array([0]), distances])
 
     visits = visits.merge(slewing, right_index=True, left_index=True)

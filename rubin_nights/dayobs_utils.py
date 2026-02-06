@@ -115,7 +115,7 @@ def day_obs_sunset_sunrise(day_obs: str | int, sun_alt: float = -12) -> tuple[Ti
     return (sunset, sunrise)
 
 
-def estimated_baseline_visit_range(day_obs: int, relative_performance=1.0) -> dict[str, int]:
+def estimated_baseline_visit_range(day_obs: int, relative_performance: float=1.0) -> dict[str, int]:
     """Estimate an average and likely upper limit for the number of visits on
     a given day_obs.
 
