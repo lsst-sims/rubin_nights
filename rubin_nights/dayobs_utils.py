@@ -2,6 +2,7 @@ import datetime
 import functools
 
 import astropy.units as u
+import numpy as np
 from astroplan import Observer
 from astropy.coordinates.errors import UnknownSiteException
 from astropy.time import Time, TimeDelta
@@ -17,6 +18,7 @@ __all__ = [
     "day_obs_to_time",
     "rubin_observer",
     "day_obs_sunset_sunrise",
+    "estimated_baseline_visit_range",
 ]
 
 
@@ -111,3 +113,40 @@ def day_obs_sunset_sunrise(day_obs: str | int, sun_alt: float = -12) -> tuple[Ti
         observer.sun_rise_time(day_obs_time, which="next", horizon=sun_alt * u.deg), format="jd", scale="tai"
     )
     return (sunset, sunrise)
+
+
+def estimated_baseline_visit_range(day_obs: int, relative_performance=1.0) -> dict[str, int]:
+    """Estimate an average and likely upper limit for the number of visits on
+    a given day_obs.
+
+    Parameters
+    ----------
+    day_obs
+        The day of interest.
+    relative_performance
+        The expected open shutter fraction ratio compared to the baseline
+        value used in the simulations.
+        The simulations used to estimate open shutter fraction here are v5.1.
+
+    Returns
+    -------
+    estimate_visits : `dict` [`str` : `int`]
+        A dictionary with `n_vis_ave` and `n_vis_high` keys, containing
+        a range of estimated nvisits values. These estimates are based on
+        open shutter fraction and night length.
+    """
+    sunset, sunrise = day_obs_sunset_sunrise(day_obs, sun_alt=-12)
+    night_length = (sunrise - sunset).jd * 24 * 60 * 60  # seconds
+    night = day_obs_to_time(day_obs)
+    night_min = Time("2025-12-21T12:00:00")
+    # The mean open shutter fraction in v5.1 runs is ~0.74
+    # but this doesn't match average nvisits without modulation
+    open_shutter_fraction = 0.74 - 0.02 * np.cos((night - night_min).jd / 365 * 2 * np.pi)
+    estimate_nvis_ave = open_shutter_fraction * night_length / 30  # assume 30s visits
+    estimate_nvis_ave = int(np.floor(estimate_nvis_ave * relative_performance))
+    # The upper envelope of nvisits/night over many simulations + years
+    # matches more closely with 0.78
+    open_shutter_fraction = 0.78
+    estimate_nvis_hi = open_shutter_fraction * night_length / 30  # assume 30s visits
+    estimate_nvis_hi = int(np.floor(estimate_nvis_hi * relative_performance))
+    return {"n_vis_ave": estimate_nvis_ave, "n_vis_high": estimate_nvis_hi}
