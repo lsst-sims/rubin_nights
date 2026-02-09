@@ -123,7 +123,7 @@ def add_rubin_sim_cols(
     visits = visits.merge(new_df, right_index=True, left_index=True)
 
     # We may have already calculated a "good" pixel scale
-    if not "pixel_scale_est" in visits.columns:
+    if "pixel_scale_est" not in visits.columns:
         # replace PLATESCALE with x.pixel_scale_median when available and good
         pixel_scale: float | npt.NDArray
         if pixel_scale_col in visits.columns:
@@ -172,7 +172,8 @@ def add_rubin_sim_cols(
 
         snr = 5
         counts_5sigma = (snr**2) / (2) + np.sqrt((snr**4) / (4) + snr**2 * total_noise_sq)
-        # We could use the measured zeropoint directly (should match stats_mag_lim)
+        # We could use the measured zeropoint directly
+        # (then in theory should match stats_mag_lim)
         # Or we could use the 'corrected' zeropoint + exposure time
         visits.cat_m5 = -2.5 * np.log10(counts_5sigma) + visits[zero_point_col]
 

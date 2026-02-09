@@ -10,6 +10,7 @@ from astropy.time import Time, TimeDelta
 __all__ = [
     "today_day_obs",
     "yesterday_day_obs",
+    "tomorrow_day_obs",
     "time_to_day_obs",
     "time_to_day_obs_int",
     "day_obs_str_to_int",
@@ -30,6 +31,11 @@ def today_day_obs() -> str:
 def yesterday_day_obs() -> str:
     """Return the day_obs for yesterday, formatted as YYYY-MM-DD."""
     return time_to_day_obs(Time.now() - TimeDelta(1, format="jd"))
+
+
+def tomorrow_day_obs() -> str:
+    """Return the day_obs for tomorrow, formatted at YYYY-MM-DD."""
+    return time_to_day_obs(Time.now() + TimeDelta(1, format="jd"))
 
 
 def time_to_day_obs(time: Time) -> str:
@@ -115,7 +121,7 @@ def day_obs_sunset_sunrise(day_obs: str | int, sun_alt: float = -12) -> tuple[Ti
     return (sunset, sunrise)
 
 
-def estimated_baseline_visit_range(day_obs: int, relative_performance: float=1.0) -> dict[str, int]:
+def estimated_baseline_visit_range(day_obs: int, relative_performance: float = 1.0) -> dict[str, int]:
     """Estimate an average and likely upper limit for the number of visits on
     a given day_obs.
 
