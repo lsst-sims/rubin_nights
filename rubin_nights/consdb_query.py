@@ -71,15 +71,16 @@ class ConsDb:
         """
 
         query = (
-            f"select *, q.* from  cdb_{instrument}.visit1 "
-            f"left join cdb_{instrument}.visit1_quicklook as q "
-            f"on visit1.visit_id = q.visit_id "
+            f"select visit1.*, visit1_quicklook.* "
+            f"from  cdb_{instrument}.visit1 as visit1 "
+            f"left join cdb_{instrument}.visit1_quicklook as visit1_quicklook "
+            f"on visit1.visit_id = visit1_quicklook.visit_id "
         )
         constraint = []
         if t_start is not None:
-            constraint.append(f" obs_start_mjd >= {t_start.mjd} ")
+            constraint.append(f" visit1.obs_start_mjd >= {t_start.mjd} ")
         if t_end is not None:
-            constraint.append(f" obs_start_mjd <= {t_end.mjd} ")
+            constraint.append(f" visit1.obs_start_mjd <= {t_end.mjd} ")
         if visit_constraint is not None:
             constraint.append(f" ({visit_constraint}) ")
         constraint_str = "and".join(constraint)
@@ -94,7 +95,7 @@ class ConsDb:
             return pd.DataFrame([])
 
         if augment:
-            visits = augment_visits(visits, instrument)
+            visits = augment_visits(visits, instrument=instrument)
         return visits
 
     def query_ccdvisits(

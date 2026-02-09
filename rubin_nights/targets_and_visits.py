@@ -3,7 +3,8 @@ import logging
 import numpy as np
 import pandas as pd
 from astropy.time import Time
-from lsst.ts.xml.sal_enums import State as CSCState
+
+from .ts_xml_enums import CSCState
 
 logger = logging.getLogger(__name__)
 

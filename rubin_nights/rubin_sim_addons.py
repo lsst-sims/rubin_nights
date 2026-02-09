@@ -13,8 +13,8 @@ except ModuleNotFoundError:
     HAS_RUBIN_SIM = False
 
 from rubin_nights.reference_values import (
-    GAUSSIAN_FWHM_OVER_SIGMA,
     PLATESCALE,
+    SIGMA_TO_FWHM,
     ZEROPOINT_OFFSETS_LSSTCAM,
     ZEROPOINT_OFFSETS_LSSTCOMCAM,
 )
@@ -86,6 +86,7 @@ def add_rubin_sim_cols(
         raise ValueError(
             "cols_from should indicate either ccd or visit table, and start with 'ccd' or 'visit'",
         )
+    fwhm_col = "fwhm_eff"
 
     necessary_cols = [zero_point_col, sky_col]
     for c in necessary_cols:
@@ -121,51 +122,59 @@ def add_rubin_sim_cols(
 
     visits = visits.merge(new_df, right_index=True, left_index=True)
 
+    # We may have already calculated a "good" pixel scale
+    if "pixel_scale_est" not in visits.columns:
+        # replace PLATESCALE with x.pixel_scale_median when available and good
+        pixel_scale: float | npt.NDArray
+        if pixel_scale_col in visits.columns:
+            pixel_scale = np.where(
+                np.isnan(visits[pixel_scale_col].values), PLATESCALE, visits[pixel_scale_col].values
+            )
+            # Remove nonsense values
+            pixel_scale = np.where(visits[pixel_scale_col].values > PLATESCALE * 2.5, PLATESCALE, pixel_scale)
+        else:
+            pixel_scale = PLATESCALE
+        visits["pixel_scale_est"] = pixel_scale
+
     def calc_predicted_zeropoints(x: pd.Series) -> pd.Series:
         if x.exp_time == 0 or np.isnan(x.exp_time) or x.band not in ["u", "g", "r", "i", "z", "y"]:
             # Bail if zero or nan exposure time or not in bandpass dictionary.
             x.zero_point_1s = np.nan
             x.zero_point_1s_pred = np.nan
             x.sky_bg_mag = np.nan
-            x.cat_m5 = np.nan
             return x
         # Calculate 1-s 1-e- zeropoints (measured and predicted)
         x.zero_point_1s = x[zero_point_col] - 2.5 * np.log10(x.exp_time)
         x.zero_point_1s_pred = predicted_zeropoint(x.band, x.airmass, 1) + predicted_zeropoint_offsets[x.band]
-        # replace PLATESCALE with x.pixel_scale_median when available
-        if pixel_scale_col in x and not np.isnan(x[pixel_scale_col]):
-            pixel_scale = x[pixel_scale_col]
-        else:
-            pixel_scale = PLATESCALE
         # zp with hardware only would be the expected value for predicting
         # sky counts
         #  zp_sky = predicted_zeropoint_hardware(x.band, x.shut_time) +
         #    predicted_zeropoint_offsets[x.band]
         # but when converting from image measurements, probably
         # should use measured zeropoint (including exposure time)
-        x.sky_bg_mag = -2.5 * np.log10(x[sky_col] / pixel_scale**2) + x[zero_point_col]
+        x.sky_bg_mag = -2.5 * np.log10(x[sky_col] / x.pixel_scale_est**2) + x[zero_point_col]
         return x
 
     visits = visits.apply(calc_predicted_zeropoints, axis=1)
     visits.clouds = visits.zero_point_1s_pred - visits.zero_point_1s
     if psf_col in visits.columns:
-        # Calculate predicted m5 with an estimate of readnoise
-        noise_instr_sq = 10
         # psf_area would be good to use but going from fwhm_eff
         # makes us more internally self-consistent
-        pixel_scale: float | npt.NDArray
-        if pixel_scale_col in visits.columns:
-            pixel_scale = np.where(
-                np.isnan(visits[pixel_scale_col].values), PLATESCALE, visits[pixel_scale_col].values
-            )
+        if fwhm_col in visits.columns:
+            fwhm_eff = visits[fwhm_col]
         else:
-            pixel_scale = PLATESCALE
-        fwhm_eff = visits[psf_col] * GAUSSIAN_FWHM_OVER_SIGMA * pixel_scale
-        neff = calc_neff(fwhm_eff, pixel_scale)
+            fwhm_eff = visits[psf_col] * SIGMA_TO_FWHM * visits["pixel_scale_est"]
+        neff = calc_neff(fwhm_eff, visits["pixel_scale_est"])
+
+        # Calculate predicted m5 with an estimate of readnoise
+        noise_instr_sq = 10
         total_noise_sq = neff * (visits[sky_col] + noise_instr_sq)
 
         snr = 5
         counts_5sigma = (snr**2) / (2) + np.sqrt((snr**4) / (4) + snr**2 * total_noise_sq)
+        # We could use the measured zeropoint directly
+        # (then in theory should match stats_mag_lim)
+        # Or we could use the 'corrected' zeropoint + exposure time
         visits.cat_m5 = -2.5 * np.log10(counts_5sigma) + visits[zero_point_col]
 
     return visits

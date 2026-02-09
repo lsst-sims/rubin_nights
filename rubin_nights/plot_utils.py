@@ -59,8 +59,9 @@ def hp_moll(
     label: str | None = None,
     vmin: float | None = None,
     vmax: float | None = None,
+    rot: float | None = None,
 ) -> None:
-    hp.mollview(hp_array, alpha=alpha, min=vmin, max=vmax, title=label)
+    hp.mollview(hp_array, alpha=alpha, min=vmin, max=vmax, rot=rot, title=label)
     hp.graticule()
 
 
