@@ -74,9 +74,11 @@ def add_rubin_scheduler_cols(
 
     if cols_from.startswith("visit"):
         psf_col = "psf_sigma_median"
+        psf_area_col = "psf_area_median"
         pixel_scale_col = "pixel_scale_median"
     elif cols_from.startswith("ccd"):
         psf_col = "psf_sigma"
+        psf_area_col = "psf_area"
         pixel_scale_col = "pixel_scale"
     else:
         raise ValueError(
@@ -96,8 +98,12 @@ def add_rubin_scheduler_cols(
         else:
             pixel_scale = PLATESCALE
 
-        fwhm_eff = visits[psf_col] * SIGMA_TO_FWHM * pixel_scale
-        fwhm_geom = SeeingModel.fwhm_eff_to_fwhm_geom(fwhm_eff)
+        # psf_sigma -> fwhm_geom ("fwhm_second_moment")
+        fwhm_geom = visits[psf_col] * SIGMA_TO_FWHM * pixel_scale
+        # fwhm_geom -> fwhm_eff .. perhaps incorrect for rubin + PSF model
+        fwhm_eff_geom = SeeingModel.fwhm_geom_to_fwhm_eff(fwhm_geom)
+        # n_eff -> fwhm_eff
+        fwhm_eff = np.sqrt(visits[psf_area_col] / 2.266) * pixel_scale
 
         sev = SysEngVals()
         wavelen_corrections = np.zeros(len(visits), float)
@@ -119,20 +125,25 @@ def add_rubin_scheduler_cols(
             # donut_blur (especially in y band) can be larger than fwhm
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=RuntimeWarning)
-                idiq_donut_blur = np.sqrt(fwhm_eff**2 - visits.donut_blur_fwhm**2 + CAM_FWHM**2)
-                atm_fwhm = np.sqrt(fwhm_eff**2 - idiq_aos_cam**2)
-            atm_500_zenith = atm_fwhm / wavelen_corrections / airmass_corrections
+                idiq_donut_blur = np.sqrt(fwhm_geom**2 - visits.donut_blur_fwhm**2 + CAM_FWHM**2)
+                atm_fwhm_donut_blur = np.sqrt(visits.donut_blur_fwhm**2 - CAM_FWHM**2)
+                atm_fwhm_aos_cam = np.sqrt(fwhm_geom**2 - idiq_aos_cam**2)
+            atm_500_zenith = atm_fwhm_aos_cam / wavelen_corrections / airmass_corrections
+            atm_500_zenith_donut_blur = atm_fwhm_donut_blur / wavelen_corrections / airmass_corrections
             # Simple quadrature
             fwhm_500_zenith = np.sqrt(atm_500_zenith**2 + idiq_aos_cam**2)
             seeing_df = pd.DataFrame(
                 {
                     "fwhm_eff": fwhm_eff,
                     "fwhm_geom": fwhm_geom,
-                    "fwhm_eff_500_zenith": fwhm_500_zenith,
-                    "atm_fwhm": atm_fwhm,
+                    "fwhm_eff_geom": fwhm_eff_geom,
+                    "fwhm_500_zenith": fwhm_500_zenith,
+                    "atm_fwhm": atm_fwhm_aos_cam,
                     "atm_500_zenith": atm_500_zenith,
-                    "idiq_donut_blur": idiq_donut_blur,
                     "idiq_aos_cam": idiq_aos_cam,
+                    "atm_fwhm_donut_blur": atm_fwhm_donut_blur,
+                    "atm_500_zenith_donut_blur": atm_500_zenith_donut_blur,
+                    "idiq_donut_blur": idiq_donut_blur,
                     "pixel_scale_est": pixel_scale,
                 }
             )
