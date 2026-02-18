@@ -6,7 +6,7 @@ import pandas as pd
 from astropy.time import Time
 
 try:
-    from rubin_sim.phot_utils import calc_neff, predicted_zeropoint
+    from rubin_sim.phot_utils import predicted_zeropoint
 
     HAS_RUBIN_SIM = True
 except ModuleNotFoundError:
@@ -14,7 +14,6 @@ except ModuleNotFoundError:
 
 from rubin_nights.reference_values import (
     PLATESCALE,
-    SIGMA_TO_FWHM,
     ZEROPOINT_OFFSETS_LSSTCAM,
     ZEROPOINT_OFFSETS_LSSTCOMCAM,
 )
@@ -75,18 +74,17 @@ def add_rubin_sim_cols(
     if cols_from.startswith("visit"):
         zero_point_col = "zero_point_median"
         sky_col = "sky_bg_median"
-        psf_col = "psf_sigma_median"
+        psf_area_col = "psf_area_median"
         pixel_scale_col = "pixel_scale_median"
     elif cols_from.startswith("ccd"):
         zero_point_col = "zero_point"
         sky_col = "sky_bg"
-        psf_col = "psf_sigma"
+        psf_area_col = "psf_area"
         pixel_scale_col = "pixel_scale"
     else:
         raise ValueError(
             "cols_from should indicate either ccd or visit table, and start with 'ccd' or 'visit'",
         )
-    fwhm_col = "fwhm_eff"
 
     necessary_cols = [zero_point_col, sky_col]
     for c in necessary_cols:
@@ -157,14 +155,9 @@ def add_rubin_sim_cols(
 
     visits = visits.apply(calc_predicted_zeropoints, axis=1)
     visits.clouds = visits.zero_point_1s_pred - visits.zero_point_1s
-    if psf_col in visits.columns:
-        # psf_area would be good to use but going from fwhm_eff
-        # makes us more internally self-consistent
-        if fwhm_col in visits.columns:
-            fwhm_eff = visits[fwhm_col]
-        else:
-            fwhm_eff = visits[psf_col] * SIGMA_TO_FWHM * visits["pixel_scale_est"]
-        neff = calc_neff(fwhm_eff, visits["pixel_scale_est"])
+    if psf_area_col in visits.columns:
+        # psf_area seems like a better choice
+        neff = visits[psf_area_col]
 
         # Calculate predicted m5 with an estimate of readnoise
         noise_instr_sq = 10
@@ -227,7 +220,7 @@ def consdb_to_opsim(consdb_visits: pd.DataFrame) -> pd.DataFrame | None:
         "sun_Dec": "sunDec",
         "sun_alt": "sunAlt",
         "sun_az": "sunAz",
-        "fwhm_500_zenith": "FWHM_500",
+        "atm_500_zenith": "seeingFwhm500",
         "clouds": "cloud_extinction",
     }
 
@@ -247,7 +240,7 @@ def consdb_to_opsim(consdb_visits: pd.DataFrame) -> pd.DataFrame | None:
             return None
 
     opsim_visits = consdb_visits.rename(opsim_mapping, axis=1)
-    # Appropriate for SV survey
+    # Add a 'night' column aligning with the current default for opsim.
     opsim_visits["nexp"] = 1
     opsim_visits["night"] = np.floor(
         (Time(opsim_visits["observationStartMJD"], format="mjd", scale="tai") - SURVEY_START).jd
