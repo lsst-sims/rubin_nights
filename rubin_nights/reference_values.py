@@ -35,4 +35,3 @@ ZEROPOINT_OFFSETS_LSSTCAM = {"u": 0.12, "g": 0.09, "r": 0.13, "i": 0.13, "z": 0.
 ZEROPOINT_OFFSETS_LSSTCOMCAM = {"u": 0.26, "g": -0.14, "r": -0.09, "i": -0.10, "z": -0.13, "y": -0.18}
 # lsstcomcam offsets for DP1 are probably 0 although might be
 ZEROPOINT_OFFSETS_DP1 = {"u": 0.03, "g": 0.01, "r": 0.00, "i": 0.00, "z": -0.00, "y": 0.01}
-
