@@ -30,7 +30,7 @@ FWHM_TO_SIGMA: float = 1 / SIGMA_TO_FWHM
 
 # TODO make these time-dependent
 # current estimate for zeropoint offsets to be able to evaluate clouds=0
-ZEROPOINT_OFFSETS_LSSTCAM = {"u": 0.12, "g": 0.09, "r": 0.13, "i": 0.13, "z": 0.14, "y": 0.02}
+ZEROPOINT_OFFSETS_LSSTCAM = {"u": 0.06, "g": 0.09, "r": 0.13, "i": 0.13, "z": 0.14, "y": 0.02}
 # lsstcomcam offsets based on refcats at the time of processing
 ZEROPOINT_OFFSETS_LSSTCOMCAM = {"u": 0.26, "g": -0.14, "r": -0.09, "i": -0.10, "z": -0.13, "y": -0.18}
 # lsstcomcam offsets for DP1 are probably 0 although might be
