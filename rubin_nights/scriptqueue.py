@@ -787,7 +787,7 @@ def get_narrative_and_errors(
     # Add ObservatoryStatus from lsst.sal.Scheduler.logevent_observatoryStatus
     topic = "lsst.sal.Scheduler.logevent_observatoryStatus"
     fields = ["status", "note", "statusLabels"]
-    obs_status_messages : pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
+    obs_status_messages: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
     if len(obs_status_messages) == 0:
         obs_status_messages = pd.DataFrame([], columns=fields)
     obs_status_messages.rename(
