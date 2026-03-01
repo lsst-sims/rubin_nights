@@ -787,18 +787,17 @@ def get_narrative_and_errors(
     # Add ObservatoryStatus from lsst.sal.Scheduler.logevent_observatoryStatus
     topic = "lsst.sal.Scheduler.logevent_observatoryStatus"
     fields = ["status", "note", "statusLabels"]
-    obs_status_messages = efd_client.select_time_series(topic, fields, t_start, t_end)
+    obs_status_messages : pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
     if len(obs_status_messages) == 0:
         obs_status_messages = pd.DataFrame([], columns=fields)
-    obs_status_messages.rename({"note": "description",
-                                "statusLabels": "name",
-                                "status": "script_salIndex"}, axis=1, inplace=True)
+    obs_status_messages.rename(
+        {"note": "description", "statusLabels": "name", "status": "script_salIndex"}, axis=1, inplace=True
+    )
     obs_status_messages["category_index"] = CategoryIndexExtended.NARRATIVE_LOG_SIMONYI.value
     obs_status_messages["config"] = "LOVE"
     obs_status_messages["finalStatus"] = "ObsStatus"
     obs_status_messages["timestampProcessStart"] = obs_status_messages.index.values.copy()
     logger.info(f"Found {len(obs_status_messages)} entries from observatoryStatus")
-
 
     # Get error codes
     errs = get_error_codes(t_start, t_end, efd_client)
