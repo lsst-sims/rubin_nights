@@ -198,7 +198,7 @@ def add_rubin_scheduler_cols(
             "moon_alt": np.degrees(almanac_values["moon_alt"]),
             "moon_az": np.degrees(almanac_values["moon_az"]),
             "moon_RA": moon_RA,
-            "moon_dec": moon_dec,
+            "moon_Dec": moon_dec,
             "moon_distance": moon_distance,
             "moon_illum": moon_illum,
         },

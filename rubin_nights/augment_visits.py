@@ -21,6 +21,7 @@ def augment_visits(
     instrument: str = "lsstcam",
     skip_rs_columns: bool = False,
     predicted_zeropoint_offsets: dict | None = None,
+    cols_from: str = "visit",
 ) -> pd.DataFrame:
     """Add additional columns to the dataframe resulting from
     querying the visit1 + visit1_quicklook tables.
@@ -44,6 +45,10 @@ def augment_visits(
     predicted_zeropoint_offsets
         Offsets to add to the predicted zeropoint values.
         If None, will pick appropriate defaults based on instrument.
+    cols_from
+        A string to indicate whether the visits come from the 'visit'
+        oriented tables or the 'ccd' oriented tables, as the column
+        names vary slightly.
 
     Returns
     -------
@@ -75,18 +80,23 @@ def augment_visits(
         "s_dec",
         "exp_midpt_mjd",
         "airmass",
+        "zero_point",
         "zero_point_median",
         "zero_point_min",
         "zero_point_max",
+        "psf_sigma",
         "psf_sigma_median",
         "psf_sigma_min",
         "psf_sigma_max",
+        "psf_area",
         "psf_area_median",
         "psf_area_min",
         "psf_area_max",
+        "sky_bg",
         "sky_bg_median",
         "sky_bg_min",
         "sky_bg_max",
+        "pixel_scale",
         "pixel_scale_median",
     ]
     for col in columns_to_floats:
@@ -123,12 +133,12 @@ def augment_visits(
     visits = visits.merge(new_df, right_index=True, left_index=True)
 
     if not skip_rs_columns:
-        visits = add_rubin_scheduler_cols(visits, cols_from="visit")
+        visits = add_rubin_scheduler_cols(visits, cols_from=cols_from)
         visits = add_rubin_sim_cols(
             visits,
             instrument=instrument,
             predicted_zeropoint_offsets=predicted_zeropoint_offsets,
-            cols_from="visit",
+            cols_from=cols_from,
         )
 
     return visits

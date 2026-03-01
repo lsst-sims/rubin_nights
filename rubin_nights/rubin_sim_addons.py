@@ -199,12 +199,14 @@ def consdb_to_opsim(consdb_visits: pd.DataFrame) -> pd.DataFrame | None:
         "s_ra": "fieldRA",
         "s_dec": "fieldDec",
         "sky_rotation": "rotSkyPos",
+        "physical_rotator_angle": "rotTelPos",
         "obs_start_mjd": "observationStartMJD",
+        "physical_filter": "filter",
         "lst": "observationStartLST",
         "approx_parallactic": "paraAngle",
         "exp_time": "visitExposureTime",
         "dark_time": "visitTime",
-        "sky_bg_median_mag": "skyBrightness",
+        "sky_bg_mag": "skyBrightness",
         "cat_m5": "fiveSigmaDepth",
         "visit_gap": "slewTime",
         "slew_distance": "slewDistance",
@@ -240,10 +242,12 @@ def consdb_to_opsim(consdb_visits: pd.DataFrame) -> pd.DataFrame | None:
             return None
 
     opsim_visits = consdb_visits.rename(opsim_mapping, axis=1)
+    # copy "scheduler_note" to "note" for obs playback at 3.21.0
     # Add a 'night' column aligning with the current default for opsim.
     opsim_visits["nexp"] = 1
     opsim_visits["night"] = np.floor(
         (Time(opsim_visits["observationStartMJD"], format="mjd", scale="tai") - SURVEY_START).jd
     )
+    opsim_visits["target_id"] = np.arange(0, len(opsim_visits), 1)
 
     return opsim_visits
