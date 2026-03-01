@@ -419,9 +419,12 @@ class NarrativeLogClient(LoggingServiceClient):
 
         # Strip excessive \r\n and \n\n from messages
         messages["message_text"] = messages.apply(strip_rns, axis=1)
-        # Add a time index -
-        # date_added seems to align best with remainder of scriptqueue
-        messages["time"] = messages.apply(logtime_to_datetime, args=("date_added",), axis=1)
+        # Add a time index
+        time_start = messages.apply(logtime_to_datetime, args=("date_begin",), axis=1)
+        time_end = messages.apply(logtime_to_datetime, args=("date_end",), axis=1)
+        time = np.where(messages.time_lost > 0, time_end, time_start)
+        messages["time"] = time
+
         messages.set_index("time", inplace=True)
         messages.index = messages.index.tz_localize("UTC")
         # Join the components and add "Log" explicitly
