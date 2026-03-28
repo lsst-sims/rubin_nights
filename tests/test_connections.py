@@ -52,7 +52,7 @@ class TestConnections(unittest.TestCase):
 
     def test_endpoints(self) -> None:
         # Check definition of some sites
-        for site in ["usdf", "usdf-dev", "summit", "base"]:
+        for site in ["usdf", "usdf-dev", "usdf-int", "summit", "base"]:
             tokenfile = os.path.join(self.test_dir, self.tokenfile)
             endpoints = connections.get_clients(tokenfile=tokenfile, site=site)
             self.assertTrue(isinstance(endpoints["api_base"], str))

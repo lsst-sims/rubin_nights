@@ -42,8 +42,8 @@ class InfluxQueryClient:
         results_as_dataframe: bool = True,
         query_timeout: float = 5 * 60,
     ) -> None:
-        # sasquatch (special case)
-        if site == "usdf-dev":
+        # On usdf-dev or usdf-int, still use 'usdf' as EFD endpoint.
+        if site == "usdf-dev" or site == "usdf-int":
             site = "usdf"
         self.site = site + "_efd"
         self.db_name = db_name

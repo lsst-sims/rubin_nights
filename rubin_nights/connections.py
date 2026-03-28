@@ -149,6 +149,8 @@ def get_clients(
             site = "summit"
         elif "base-lsp" in location:
             site = "base"
+        elif "usdf-rsp-int" in location:
+            site = "usdf-int"
         elif "usdf-rsp-dev" in location:
             site = "usdf-dev"
         elif "usdf-rsp" in location:
@@ -172,6 +174,7 @@ def get_clients(
     consdb_tap = ConsDbTap(api_base, token=token)
     efd_client = InfluxQueryClient(site, db_name="efd")
     obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv")
+    # Some special clients that are site-agnostic (only one location)
     too_client = InfluxQueryClient("summit", db_name="lsst.scimma")
     dm_client = InfluxQueryClient("usdfdev", db_name="lsst.dm")
 
