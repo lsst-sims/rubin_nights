@@ -757,6 +757,7 @@ def get_narrative_and_errors(
     -------
     narrative_and_errors : `pd.DataFrame`
     """
+    # Get and rename the narrative log
     messages = narrative_log_client.query_log(t_start, t_end)
     # Modify narrative log content
     if len(messages) > 0:
@@ -778,7 +779,11 @@ def get_narrative_and_errors(
                 st = "Log"
             return st
 
+        def strip_user_id_at_part(x: pd.Series) -> str:
+            return x.user_id.split("@")[0]
+
         messages["finalStatus"] = messages.apply(build_status, axis=1)
+        messages["user_id"] = messages.apply(strip_user_id_at_part, axis=1)
         messages.rename(
             {"component": "name", "user_id": "config", "message_text": "description"}, axis=1, inplace=True
         )
