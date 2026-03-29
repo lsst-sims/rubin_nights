@@ -209,6 +209,7 @@ class InfluxQueryClient:
                 params=params,
             )
             response.raise_for_status()
+            logger.debug(f"Issued query: {params['q']}")
         except Exception as e:
             logger.warning(e)
             response = None
@@ -222,8 +223,6 @@ class InfluxQueryClient:
             result = []
             if self.results_as_dataframe:
                 result = pd.DataFrame(result)
-        if len(result) == 0:
-            logging.debug(f"Query {params['q']} produced no results.")
 
         return result
 
@@ -236,6 +235,7 @@ class InfluxQueryClient:
                 params=params,
             )
             response.raise_for_status()
+            logger.debug(f"Issued query: {params['q']}")
         except Exception as e:
             logger.warning(e)
             response = None
@@ -249,8 +249,6 @@ class InfluxQueryClient:
             result = []
             if self.results_as_dataframe:
                 result = pd.DataFrame(result)
-        if len(result) == 0:
-            logging.debug(f"Query {params['q']} produced no results.")
 
         return result
 
