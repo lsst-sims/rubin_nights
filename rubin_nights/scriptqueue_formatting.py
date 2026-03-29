@@ -18,6 +18,7 @@ def get_name_and_color_from_category_index(
         CategoryIndexExtended.NARRATIVE_LOG_OTHER.value: ("Narrative log", "#cf7ddc"),
         CategoryIndexExtended.NARRATIVE_LOG_SIMONYI.value: ("Narrative log MT", "#cf7ddc"),
         CategoryIndexExtended.NARRATIVE_LOG_AUX.value: ("Narrative log AT", "#cf7ddc"),
+        CategoryIndexExtended.OBSERVATORY_STATUS_SIMONYI.value: ("Observatory Status MT", "#cf7ddc"),
         CategoryIndexExtended.MAIN_TEL.value: ("MTQueue", "#b4c546"),
         CategoryIndexExtended.AUX_TEL.value: ("ATQueue", "#bab980"),
         CategoryIndexExtended.OCS.value: ("OCSQueue", "#b2baad"),
