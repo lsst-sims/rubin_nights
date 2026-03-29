@@ -279,7 +279,9 @@ def get_script_stream(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
     topic = "lsst.sal.Script.logevent_description"
     fields = ["classname", "description", "salIndex"]
     scriptdescription: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
-    scriptdescription.rename({"salIndex": "script_salIndex"}, axis=1, inplace=True)
+    scriptdescription.rename(
+        {"salIndex": "script_salIndex", "classname": "script_name"}, axis=1, inplace=True
+    )
 
     # This gets us more information about the script parameters,
     # how they were configured
@@ -526,6 +528,8 @@ def get_script_status(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
                 )
         # Convert to a single dataframe
         script_status = pd.concat(script_status)
+    # Modify path to classname here, to match other definintions
+    script_status.rename({"path": "classname"}, axis=1, inplace=True)
 
     logger.info(f"Found {len(script_status)} script status messages")
 
