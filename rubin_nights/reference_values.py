@@ -6,6 +6,7 @@ import numpy as np
 API_ENDPOINTS = {
     "usdf": "https://usdf-rsp.slac.stanford.edu",
     "usdf-dev": "https://usdf-rsp-dev.slac.stanford.edu",
+    "usdf-int": "https://usdf-rsp-int.slac.stanford.edu",
     "summit": "https://summit-lsp.lsst.codes",
     "base": "https://base-lsp.lsst.codes",
 }
