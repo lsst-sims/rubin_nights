@@ -798,7 +798,7 @@ def get_narrative_and_errors(
     obs_status_messages.rename(
         {"note": "description", "statusLabels": "name", "status": "script_salIndex"}, axis=1, inplace=True
     )
-    obs_status_messages["category_index"] = CategoryIndexExtended.NARRATIVE_LOG_SIMONYI.value
+    obs_status_messages["category_index"] = CategoryIndexExtended.OBSERVATORY_STATUS_SIMONYI.value
     obs_status_messages["config"] = "LOVE"
     obs_status_messages["finalStatus"] = "ObsStatus"
     obs_status_messages["timestampProcessStart"] = obs_status_messages.index.values.copy()
@@ -821,7 +821,11 @@ def get_narrative_and_errors(
         tracebacks = pd.DataFrame([])
     # Merge
     df_list = [messages, obs_status_messages, errs, tracebacks]
-    narrative_and_errors = pd.concat([df for df in df_list if not df.empty]).sort_index()
+    df_to_concat = [df for df in df_list if not df.empty]
+    if len(df_to_concat) > 0:
+        narrative_and_errors = pd.concat(df_to_concat).sort_index()
+    else:
+        narrative_and_errors = pd.DataFrame([])
     return narrative_and_errors
 
 
