@@ -739,6 +739,7 @@ def get_narrative_and_errors(
     t_end: Time,
     efd_client: InfluxQueryClient,
     narrative_log_client: NarrativeLogClient,
+    fetch_errors: bool = True,
     all_tracebacks: bool = True,
 ) -> pd.DataFrame:
     """Get narrative log and error code messages.
@@ -753,9 +754,12 @@ def get_narrative_and_errors(
         EfdClient to query the efd.
     narrative_log_client
         Narrative log query client.
+    fetch_errors
+        Fetch error messages and codes from CSCs with an error code topic.
     all_tracebacks
         Flag as to whether to query for all tracebacks from systems other
-        than lsst.sal.Script.logevent_logMessages.
+        than lsst.sal.Script.logevent_logMessages (included previously with
+        scriptqueue outputs).
 
     Returns
     -------
@@ -809,7 +813,20 @@ def get_narrative_and_errors(
     logger.info(f"Found {len(obs_status_messages)} entries from observatoryStatus")
 
     # Get error codes
-    errs = get_error_codes(t_start, t_end, efd_client)
+    if fetch_errors:
+        errs = get_error_codes(t_start, t_end, efd_client)
+    else:
+        errs = pd.DataFrame(
+            [],
+            columns=[
+                "name",
+                "errorReport",
+                "config",
+                "category_index",
+                "errorCode" "finalStatus",
+                "timestampProcessStart",
+            ],
+        )
     if len(errs) > 0:
         # Rename some columns to match narrative log columns
         errs.rename(
@@ -983,7 +1000,7 @@ def get_exposure_info(
 
 
 def get_consolidated_messages(
-    t_start: Time, t_end: Time, endpoints: dict, all_tracebacks: bool = False
+    t_start: Time, t_end: Time, endpoints: dict, fetch_errors: bool = True, all_tracebacks: bool = False
 ) -> tuple[pd.DataFrame, list[str]]:
     """Get consolidated messages from EFD ScriptQueue, errorCodes,
     CCCamera, exposure and narrative logs.
@@ -999,8 +1016,11 @@ def get_consolidated_messages(
         ConsDb, such as returned by `rubin_nights.connections.get_clients`.
         Must have clients for the `efd`, `obsenv`, `narrative_log` and
         `exposure_log`.
+    fetch_errors
+        Fetch error messages from all available CSCs.
     all_tracebacks
-        If True, get all tracebacks, else get only Script tracebacks.
+        Flag as to whether to query for all tracebacks from systems other
+        than lsst.sal.Script.logevent_logMessages (which is always included).
 
     Returns
     -------
@@ -1045,7 +1065,12 @@ def get_consolidated_messages(
 
     # columns from narrative and errors
     narrative_and_errs = get_narrative_and_errors(
-        t_start, t_end, endpoints["efd"], endpoints["narrative_log"], all_tracebacks
+        t_start,
+        t_end,
+        endpoints["efd"],
+        endpoints["narrative_log"],
+        fetch_errors=fetch_errors,
+        all_tracebacks=all_tracebacks,
     )
 
     # columns from images_and_logs
