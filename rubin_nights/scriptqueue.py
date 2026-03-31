@@ -279,7 +279,9 @@ def get_script_stream(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
     topic = "lsst.sal.Script.logevent_description"
     fields = ["classname", "description", "salIndex"]
     scriptdescription: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
-    scriptdescription.rename({"salIndex": "script_salIndex"}, axis=1, inplace=True)
+    scriptdescription.rename(
+        {"salIndex": "script_salIndex", "classname": "script_name"}, axis=1, inplace=True
+    )
 
     # This gets us more information about the script parameters,
     # how they were configured
@@ -526,6 +528,8 @@ def get_script_status(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
                 )
         # Convert to a single dataframe
         script_status = pd.concat(script_status)
+    # Modify path to classname here, to match other definintions
+    script_status.rename({"path": "classname"}, axis=1, inplace=True)
 
     logger.info(f"Found {len(script_status)} script status messages")
 
@@ -735,6 +739,7 @@ def get_narrative_and_errors(
     t_end: Time,
     efd_client: InfluxQueryClient,
     narrative_log_client: NarrativeLogClient,
+    fetch_errors: bool = True,
     all_tracebacks: bool = True,
 ) -> pd.DataFrame:
     """Get narrative log and error code messages.
@@ -749,14 +754,18 @@ def get_narrative_and_errors(
         EfdClient to query the efd.
     narrative_log_client
         Narrative log query client.
+    fetch_errors
+        Fetch error messages and codes from CSCs with an error code topic.
     all_tracebacks
         Flag as to whether to query for all tracebacks from systems other
-        than lsst.sal.Script.logevent_logMessages.
+        than lsst.sal.Script.logevent_logMessages (included previously with
+        scriptqueue outputs).
 
     Returns
     -------
     narrative_and_errors : `pd.DataFrame`
     """
+    # Get and rename the narrative log
     messages = narrative_log_client.query_log(t_start, t_end)
     # Modify narrative log content
     if len(messages) > 0:
@@ -778,7 +787,11 @@ def get_narrative_and_errors(
                 st = "Log"
             return st
 
+        def strip_user_id_at_part(x: pd.Series) -> str:
+            return x.user_id.split("@")[0]
+
         messages["finalStatus"] = messages.apply(build_status, axis=1)
+        messages["user_id"] = messages.apply(strip_user_id_at_part, axis=1)
         messages.rename(
             {"component": "name", "user_id": "config", "message_text": "description"}, axis=1, inplace=True
         )
@@ -793,14 +806,27 @@ def get_narrative_and_errors(
     obs_status_messages.rename(
         {"note": "description", "statusLabels": "name", "status": "script_salIndex"}, axis=1, inplace=True
     )
-    obs_status_messages["category_index"] = CategoryIndexExtended.NARRATIVE_LOG_SIMONYI.value
+    obs_status_messages["category_index"] = CategoryIndexExtended.OBSERVATORY_STATUS_SIMONYI.value
     obs_status_messages["config"] = "LOVE"
     obs_status_messages["finalStatus"] = "ObsStatus"
     obs_status_messages["timestampProcessStart"] = obs_status_messages.index.values.copy()
     logger.info(f"Found {len(obs_status_messages)} entries from observatoryStatus")
 
     # Get error codes
-    errs = get_error_codes(t_start, t_end, efd_client)
+    if fetch_errors:
+        errs = get_error_codes(t_start, t_end, efd_client)
+    else:
+        errs = pd.DataFrame(
+            [],
+            columns=[
+                "name",
+                "errorReport",
+                "config",
+                "category_index",
+                "errorCode" "finalStatus",
+                "timestampProcessStart",
+            ],
+        )
     if len(errs) > 0:
         # Rename some columns to match narrative log columns
         errs.rename(
@@ -816,7 +842,11 @@ def get_narrative_and_errors(
         tracebacks = pd.DataFrame([])
     # Merge
     df_list = [messages, obs_status_messages, errs, tracebacks]
-    narrative_and_errors = pd.concat([df for df in df_list if not df.empty]).sort_index()
+    df_to_concat = [df for df in df_list if not df.empty]
+    if len(df_to_concat) > 0:
+        narrative_and_errors = pd.concat(df_to_concat).sort_index()
+    else:
+        narrative_and_errors = pd.DataFrame([])
     return narrative_and_errors
 
 
@@ -970,7 +1000,7 @@ def get_exposure_info(
 
 
 def get_consolidated_messages(
-    t_start: Time, t_end: Time, endpoints: dict, all_tracebacks: bool = False
+    t_start: Time, t_end: Time, endpoints: dict, fetch_errors: bool = True, all_tracebacks: bool = False
 ) -> tuple[pd.DataFrame, list[str]]:
     """Get consolidated messages from EFD ScriptQueue, errorCodes,
     CCCamera, exposure and narrative logs.
@@ -986,8 +1016,11 @@ def get_consolidated_messages(
         ConsDb, such as returned by `rubin_nights.connections.get_clients`.
         Must have clients for the `efd`, `obsenv`, `narrative_log` and
         `exposure_log`.
+    fetch_errors
+        Fetch error messages from all available CSCs.
     all_tracebacks
-        If True, get all tracebacks, else get only Script tracebacks.
+        Flag as to whether to query for all tracebacks from systems other
+        than lsst.sal.Script.logevent_logMessages (which is always included).
 
     Returns
     -------
@@ -1032,7 +1065,12 @@ def get_consolidated_messages(
 
     # columns from narrative and errors
     narrative_and_errs = get_narrative_and_errors(
-        t_start, t_end, endpoints["efd"], endpoints["narrative_log"], all_tracebacks
+        t_start,
+        t_end,
+        endpoints["efd"],
+        endpoints["narrative_log"],
+        fetch_errors=fetch_errors,
+        all_tracebacks=all_tracebacks,
     )
 
     # columns from images_and_logs

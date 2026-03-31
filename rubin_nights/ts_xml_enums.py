@@ -88,6 +88,7 @@ class CategoryIndexExtended(enum.IntEnum):
     NARRATIVE_LOG_SIMONYI = 20
     NARRATIVE_LOG_AUX = 21
     NARRATIVE_LOG_OTHER = 22
+    OBSERVATORY_STATUS_SIMONYI = 23
 
 
 def apply_enum(x: pd.Series, column: str, enumvals: ScriptState | CSCState) -> str:
