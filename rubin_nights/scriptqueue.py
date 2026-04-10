@@ -790,11 +790,21 @@ def get_narrative_and_errors(
         def strip_user_id_at_part(x: pd.Series) -> str:
             return x.user_id.split("@")[0]
 
+        def add_ticket_link(x: pd.Series) -> str:
+            # Add URL links to the end of the message text
+            message_text = x.message_text
+            if len(x.urls) > 0:
+                for ticket in x.urls:
+                    ticket_name = ticket.split("browse/")[-1]
+                    message_text += (
+                        f'<br> <a href="{ticket}" target="_blank" rel="noreferrer noopener">{ticket_name}</a>'
+                    )
+            return message_text
+
         messages["finalStatus"] = messages.apply(build_status, axis=1)
         messages["user_id"] = messages.apply(strip_user_id_at_part, axis=1)
-        messages.rename(
-            {"component": "name", "user_id": "config", "message_text": "description"}, axis=1, inplace=True
-        )
+        messages["description"] = messages.apply(add_ticket_link, axis=1)
+        messages.rename({"component": "name", "user_id": "config"}, axis=1, inplace=True)
     logger.info(f"Found {len(messages)} messages in the narrative log")
 
     # Add ObservatoryStatus from lsst.sal.Scheduler.logevent_observatoryStatus
@@ -1097,9 +1107,6 @@ def get_consolidated_messages(
 
     df_list = [script_status, narrative_and_errs, image_and_logs]
     efd_and_messages = pd.concat([df for df in df_list if not df.empty]).sort_index()
-
-    # Wrap description, for on-screen spacing
-    efd_and_messages["description"] = efd_and_messages["description"].str.wrap(100)
 
     # Add some big labels which could be used to indicate times
     # where activity passes from one task to another.

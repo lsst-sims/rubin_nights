@@ -74,7 +74,7 @@ def format_config_as_yaml_with_colors(row: pd.Series) -> str:
 
 
 def format_description(row: pd.Series) -> str:
-    if row.description.startswith("<a href"):
+    if "<a href" in row.description:
         return row.description
     else:
         # Escape these in particular because of tracebacks
