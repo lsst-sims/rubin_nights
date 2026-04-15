@@ -21,14 +21,16 @@ def get_access_token(tokenfile: str | None = None) -> str:
     ----------
     tokenfile
         Path to the RSP token file. See documentation on RSP tokens at
-        https://rsp.lsst.io/v/usdfprod/guides/auth/creating-user-tokens.html
+        https://rsp.lsst.io/guides/auth/creating-user-tokens.html
         The token will be read from the tokenfile if available.
         If tokenfile is None, then further attempts will be made to
         access the token value from:
-        * `lsst.rsp.get_access_token`
-        * the environment variable "ACCESS_TOKEN"
-        * the environment variable "ACCESS_TOKEN_FILE"
-        * the home directory + '.lsst' + DEFAULT_TOKENFILE
+
+        1. `lsst.rsp.get_access_token`
+        2. the environment variable "ACCESS_TOKEN"
+        3. the environment variable "ACCESS_TOKEN_FILE"
+        4. the home directory + '.lsst' + DEFAULT_TOKENFILE
+
         If no RSP token is available, access to most services will not
         be available.
 

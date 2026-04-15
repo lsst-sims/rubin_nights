@@ -32,8 +32,8 @@ class InfluxQueryClient:
     site
         The site to use for the EFD, e.g. usdf, summit, base.
         Note that influxdb sites can be special: e.g. currently
-        the EFD at USDF is only on usdf-rsp (not -dev) and
-        Sasquatch (PP metrics) is only at usdf-rsp-dev.
+        the EFD at USDF is only on usdf-rsp (usdf, not -dev) and
+        Sasquatch (PP metrics) is only at usdf-rsp-dev (usdf-dev).
     db_name
         The database to query.
         Not used for credentials info, but will be used to help guide to the
@@ -107,7 +107,14 @@ class InfluxQueryClient:
         self.async_client = httpx.AsyncClient(base_url=self.url, timeout=timeout, auth=influx_auth)
 
     def _fetch_credentials_repertoire(self, auth: tuple) -> tuple[str, tuple[str, bytes]]:
-        """Fetch the credentials via repertoire."""
+        """Fetch the credentials via repertoire.
+
+        Parameters
+        ----------
+        auth
+            The username and password for authentication to repertoire
+            (RSP/gaefaelfwr token).
+        """
         creds_service = f"{API_ENDPOINTS[self.site]}/repertoire/discovery/influxdb"
         try:
             influx_creds = httpx.get(creds_service, auth=auth)
@@ -187,7 +194,8 @@ class InfluxQueryClient:
         time_range: tuple[Time, Time] | None = None,
         filters: list[tuple[str, str]] | None = None,
     ) -> str:
-        """Build an influx DB query.
+        """Build an influx DB query for `fields` from `measurement` (topic),
+        usually over a time range.
 
         Parameters
         ----------
@@ -235,7 +243,8 @@ class InfluxQueryClient:
         time_cut: Time | None = None,
         filters: list[tuple[str, str]] | None = None,
     ) -> str:
-        """Build an influx DB query.
+        """Build an influx DB query for `fields` from `measurement`,
+        restricted to `num` records.
 
         Parameters
         ----------
@@ -280,7 +289,18 @@ class InfluxQueryClient:
         return query
 
     def query(self, query: str) -> dict | pd.DataFrame:
-        """Send a synchronous query to the InfluxDB API."""
+        """Send and receive results from the InfluxDB API,
+        with a synchronous query.
+
+        Parameters
+        ----------
+        query
+            The query to send to the InfluxDb.
+
+        Returns
+        -------
+        result : `dict` or `pd.DataFrame`
+        """
         # Add an identifier string to the query
         params = {"db": self.db_name, "q": query + self.query_tag}
 
@@ -308,7 +328,19 @@ class InfluxQueryClient:
         return result
 
     async def async_query(self, query: str) -> dict | pd.DataFrame:
-        """Send an asynchronous query to the InfluxDB API."""
+        """Send and receive results from the InfluxDB API,
+        with an asynchronous query.
+
+        Parameters
+        ----------
+        query
+            The query to send to the InfluxDb.
+
+        Returns
+        -------
+        result : `dict` or `pd.DataFrame`
+        """
+
         params = {"db": self.db_name, "q": query}
         try:
             response = await self.async_client.get(
@@ -381,7 +413,9 @@ class InfluxQueryClient:
         t_end: Time,
         index: int | None = None,
     ) -> str:
-        """Return data from `topic_name` between `t_start` and `t_end`.
+        """Build specific query between t_start and t_end.
+
+        Adds some logging and checks around build_influxdb_query.
 
         Parameters
         ----------
@@ -419,7 +453,8 @@ class InfluxQueryClient:
         t_end: Time,
         index: int | None = None,
     ) -> pd.DataFrame | list[dict]:
-        """Return data from `topic_name` between `t_start` and `t_end`.
+        """Sync query to return data from `topic_name`
+        between `t_start` and `t_end`.
 
         Parameters
         ----------
@@ -451,7 +486,8 @@ class InfluxQueryClient:
         t_end: Time,
         index: int | None = None,
     ) -> pd.DataFrame | list[dict]:
-        """Return data from `topic_name` between `t_start` and `t_end`.
+        """Async query to return data from `topic_name`
+        between `t_start` and `t_end`.
 
         Parameters
         ----------
@@ -483,7 +519,9 @@ class InfluxQueryClient:
         time_cut: Time = None,
         index: int | None = None,
     ) -> str:
-        """Return data from `topic_name` between `t_start` and `t_end`.
+        """Build specific query for most recent `num` records.
+
+        Adds some logging and checks around build_influxdb_top_n_query.
 
         Parameters
         ----------
@@ -521,7 +559,7 @@ class InfluxQueryClient:
         time_cut: Time = None,
         index: int | None = None,
     ) -> pd.DataFrame | list[dict]:
-        """Return data from `topic_name` between `t_start` and `t_end`.
+        """Sync query to return `num` records from `topic_name`.
 
         Parameters
         ----------
@@ -553,7 +591,7 @@ class InfluxQueryClient:
         time_cut: Time = None,
         index: int | None = None,
     ) -> pd.DataFrame | list[dict]:
-        """Return data from `topic_name` between `t_start` and `t_end`.
+        """Async query to return `num` records from `topic_name`.
 
         Parameters
         ----------
