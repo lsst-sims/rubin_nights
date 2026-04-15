@@ -11,8 +11,10 @@ __all__ = ["get_access_token", "get_clients", "usdf_lfa"]
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_TOKENFILE = "usdf_rsp"
 
-def get_access_token(tokenfile: str | None = None, default_tokenfile: str = "usdf_rsp") -> str:
+
+def get_access_token(tokenfile: str | None = None) -> str:
     """Retrieve RSP access token.
 
     Parameters
@@ -23,16 +25,13 @@ def get_access_token(tokenfile: str | None = None, default_tokenfile: str = "usd
         The token will be read from the tokenfile if available.
         If tokenfile is None, then further attempts will be made to
         access the token value from:
-        `lsst.rsp.get_access_token`
-        the environment variable "ACCESS_TOKEN"
-        the environment variable "ACCESS_TOKEN_FILE"
-        the home directory + '.lsst' + default_root
+        * `lsst.rsp.get_access_token`
+        * the environment variable "ACCESS_TOKEN"
+        * the environment variable "ACCESS_TOKEN_FILE"
+        * the home directory + '.lsst' + DEFAULT_TOKENFILE
         If no RSP token is available, access to most services will not
         be available.
-    default_tokenfile
-        If token information is not available from the options above,
-        this defines the default filename on disk to search for in
-        user home directory / .lsst / <default_tokenfile>.
+
 
     Returns
     -------
@@ -81,7 +80,7 @@ def get_access_token(tokenfile: str | None = None, default_tokenfile: str = "usd
         # Fifth - try a default home directory location.
         if token is None:
             logger.debug("$ACCESS_TOKEN_FILE not set.")
-            tokenfile = os.path.join(os.path.expanduser("~"), ".lsst", default_tokenfile)
+            tokenfile = os.path.join(os.path.expanduser("~"), ".lsst", DEFAULT_TOKENFILE)
             logger.debug(f"Checking {tokenfile}")
             # Try to read this, but an error is not an exception.
             try:
@@ -102,7 +101,7 @@ def get_clients(
     site: str | None = None,
     auth_token: str | None = None,
 ) -> dict:
-    """Return site-specific client connections.
+    """Return a wide set of site-specific client connections.
 
     Parameters
     ----------
@@ -167,16 +166,21 @@ def get_clients(
         raise ValueError(f"Site {site} must be in {list(API_ENDPOINTS.keys())}")
 
     api_base = API_ENDPOINTS[site]
+
     narrative_log = NarrativeLogClient(api_base, auth)
     exposure_log = ExposureLogClient(api_base, auth)
     night_report = NightReportClient(api_base, auth)
+
     consdb_query = ConsDbFastAPI(api_base, auth)
     consdb_tap = ConsDbTap(api_base, token=token)
-    efd_client = InfluxQueryClient(site, db_name="efd")
-    obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv")
+
+    # We'll pass along the auth for the InfluxQueryClients
+    # although there's still work to be done on auth + service site.
+    efd_client = InfluxQueryClient(site, db_name="efd", auth=auth)
+    obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv", auth=auth)
     # Some special clients that are site-agnostic (only one location)
     too_client = InfluxQueryClient("summit", db_name="lsst.scimma")
-    dm_client = InfluxQueryClient("usdfdev", db_name="lsst.dm")
+    pp_client = InfluxQueryClient("usdf-dev", db_name="lsst.prompt", auth=auth)
 
     # Be extra helpful with environment variables if using USDF for LFA
     if "usdf" in site:
@@ -193,8 +197,8 @@ def get_clients(
         "api_base": api_base,
         "efd": efd_client,
         "obsenv": obsenv_client,
+        "pp": pp_client,
         "too": too_client,
-        "dm": dm_client,
         "consdb": consdb_query,
         "consdb_tap": consdb_tap,
         "narrative_log": narrative_log,

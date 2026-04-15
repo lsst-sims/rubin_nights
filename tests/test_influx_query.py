@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 import pandas as pd
 from astropy.time import Time
 
-from rubin_nights.influx_query import InfluxQueryClient, RepertoireCredsError
+from rubin_nights.influx_query import InfluxQueryClient
 
 
 class DummyResponse:
