@@ -341,7 +341,7 @@ class InfluxQueryClient:
         result : `dict` or `pd.DataFrame`
         """
 
-        params = {"db": self.db_name, "q": query}
+        params = {"db": self.db_name, "q": query + self.query_tag}
         try:
             response = await self.async_client.get(
                 "/query",
