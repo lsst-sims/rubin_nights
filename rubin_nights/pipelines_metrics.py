@@ -29,7 +29,7 @@ def diasource_visit_summaries(
         This should be equivalent to the endpoints['sasquatch'] client.
     """
     if influx_client is None:
-        influx_client = InfluxQueryClient("usdfdev", db_name="lsst.prompt")
+        influx_client = InfluxQueryClient("usdf-dev", db_name="lsst.prompt")
 
     # DiaSources
     topic = "lsst.prompt.prod.numDiaSourcesGood"
