@@ -180,9 +180,9 @@ def get_clients(
     # although there's still work to be done on auth + service site.
     efd_client = InfluxQueryClient(site, db_name="efd", auth=auth)
     obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv", auth=auth)
+    pp_client = InfluxQueryClient(site, db_name="lsst.prompt", auth=auth)
     # Some special clients that are site-agnostic (only one location)
     too_client = InfluxQueryClient("summit", db_name="lsst.scimma")
-    pp_client = InfluxQueryClient("usdf-dev", db_name="lsst.prompt", auth=auth)
 
     # Be extra helpful with environment variables if using USDF for LFA
     if "usdf" in site:

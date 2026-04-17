@@ -23,12 +23,10 @@ class TestInfluxQueryClient(unittest.TestCase):
 
     def setUp(self) -> None:
         self.repertoire_payload = {
-            "efd": {
-                "database": "efd",
-                "username": "user1",
-                "password": "pass1",
-                "url": "https://example.test/influx",
-            }
+            "database": "efd",
+            "username": "user1",
+            "password": "pass1",
+            "url": "https://example.test/influx",
         }
         self.segwarides_payload = {
             "username": "user2",

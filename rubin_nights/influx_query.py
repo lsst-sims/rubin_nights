@@ -65,21 +65,17 @@ class InfluxQueryClient:
         results_as_dataframe: bool = True,
         query_timeout: float = 5 * 60,
     ) -> None:
-        # Fetching the credentials for the influx databases is as-yet complex.
-        # In addition, some databases are only in some influx locations.
-        # This can, in effect, require cross-platform auth to repertoire.
-        # Segwarides is the backup for repertoire.
-        self.db_name = db_name
 
-        # Find DM/PP on usdfdev_efd
-        if ("prompt" in self.db_name) | ("dm" in self.db_name):
-            if "usdf" in site:
-                site = "usdf-dev"
-        # Find EFD and lsst.obsenv on usdf (but not -dev or -int).
-        else:
-            if "usdf" in site:
-                site = "usdf"
-        self.site = site
+        # Site should match general user-expectations and keys in API_ENDPOINTS
+        self.site = site.lower()
+        # db_name is the identifier when sending query params to the RESTAPI
+        self.db_name = db_name
+        # influx_db will be the name in repertoire for the influxdb
+        # so let's create that name from some potential values
+        # aka lsst.prompt @ usdf -> usdf_prompt
+        # aka efd @ usdf-dev -> usdfdev_efd
+        self.influx_db = f"{self.site.replace('-', '')}" + "_"
+        self.influx_db += f"{db_name.lower().replace("lsst.", "")}"
 
         self.results_as_dataframe = results_as_dataframe
         if self.results_as_dataframe:
@@ -91,14 +87,22 @@ class InfluxQueryClient:
             id_tag = getpass.getuser()
         self.query_tag = f" /* {id_tag} via rubin_nights.InfluxQueryClient */"
 
-        # Fetch the actual credentials: (only usdf-rsp works at present)
-        if self.site == "usdf" and auth is not None:
+        # For user convenience, save the last query.
+        self.last_query = "No query issued yet."
+
+        # Fetch the influxdb credentials.
+        if auth is not None:
             try:
                 self.url, influx_auth = self._fetch_credentials_repertoire(auth)
             except RepertoireCredsError:
                 logger.error("Failed to fetch credentials from repertoire. Trying segwarides.")
                 self.url, influx_auth = self._fetch_credentials_segwarides()
         else:
+            logger.warning(
+                "Fetching influx credentials from segwarides, "
+                "without an auth token will soon be deprecated. "
+                "Please add an auth tuple to your kwarg values."
+            )
             self.url, influx_auth = self._fetch_credentials_segwarides()
 
         # Set up connections to influx database RestAPI endpoint.
@@ -115,49 +119,57 @@ class InfluxQueryClient:
             The username and password for authentication to repertoire
             (RSP/gaefaelfwr token).
         """
-        creds_service = f"{API_ENDPOINTS[self.site]}/repertoire/discovery/influxdb"
+        creds_service = f"{API_ENDPOINTS[self.site]}/repertoire/discovery/influxdb/{self.influx_db}"
+        logger.debug(f"Attempting to fetch credentials from {creds_service}")
         try:
-            influx_creds = httpx.get(creds_service, auth=auth)
-            influx_creds.raise_for_status()
+            response = httpx.get(creds_service, auth=auth)
+            response.raise_for_status()
         except Exception as e:
-            logger.error(f"Could not fetch credentials from repertoire for {self.site}.")
+            logger.error(f"Could not fetch credentials from repertoire at {creds_service}.")
             logger.error(e)
-            # This is almost certainly a mismatch between site + auth.
-            # e.g. looking for usdf EFD when coming from usdf-dev auth.
-            # or looking for usdfdev EFD when coming from usdf_rsp auth.
-            # Hard to avoid at present, will wait to see what square does.
             raise RepertoireCredsError
-        # Parser the influx db credentials.
-        # Note that 'efd' is the only database name in use even for lsst.prompt
-        for k, v in influx_creds.json().items():
-            if v["database"] == "efd":
-                auth = (v["username"], v["password"])
-                url = v["url"]
-                logger.info(f"Fetched credentials from repertoire for {self.site}.")
-                return url, auth
-        # If we got here, we found no match or credentials.
-        logger.error(f"Could not find database in repertoire credentials for {self.site}.")
-        raise RepertoireCredsError
+
+        # Parse the influx db credentials.
+        try:
+            influx_creds = response.json()
+        except Exception as e:
+            logger.error(f"Could not parse credentials from repertoire at {creds_service}.")
+            logger.error(e)
+            raise RepertoireCredsError
+
+        auth = (influx_creds["username"], influx_creds["password"])
+        url = influx_creds["url"]
+        logger.info(f"Fetched credentials from repertoire for {self.influx_db}.")
+        return url, auth
 
     def _fetch_credentials_segwarides(self) -> tuple[str, tuple[str, bytes]]:
         "Fetch the credentials via segwarides (to be deprecated)."
-        creds_service = f"https://roundtable.lsst.codes/segwarides/creds/{self.site.replace('-', '')}_efd"
+        # Segwarides fallback is more complicated
+        if (self.influx_db == "usdf_efd") | (self.influx_db == "usdfdev_efd"):
+            segwarides_db = "usdf_efd"
+        elif self.influx_db == "usdf_obsenv":
+            segwarides_db = "usdf_efd"
+        else:
+            segwarides_db = "usdfdev_efd"
+        creds_service = f"https://roundtable.lsst.codes/segwarides/creds/{segwarides_db}"
         try:
-            influx_creds = httpx.get(creds_service)
-            influx_creds.raise_for_status()
+            response = httpx.get(creds_service)
+            response.raise_for_status()
         except Exception as e:
-            logger.error(f"Could not fetch credentials from segwarides for {self.site}")
+            logger.error(
+                f"Could not fetch credentials from segwarides for {self.influx_db} " f"using {segwarides_db}"
+            )
             logger.error(e)
             raise e
         # Parse the creds.
-        logger.info(f"Fetched credentials from segwarides for {self.site}.")
-        influx_creds = influx_creds.json()
+        logger.info(f"Fetched credentials from segwarides for {self.influx_db}.")
+        influx_creds = response.json()
         auth = (influx_creds["username"], influx_creds["password"])
         url = "https://" + influx_creds["host"] + influx_creds["path"].rstrip("/")
         return url, auth
 
     def __repr__(self) -> str:
-        return f"{self.db_name} at {self.url}"
+        return f"{self.influx_db} at {self.url}"
 
     def _to_dataframe(self, response: dict) -> pd.DataFrame:
         """Convert an InfluxDB response to a dataframe.
@@ -303,6 +315,7 @@ class InfluxQueryClient:
         """
         # Add an identifier string to the query
         params = {"db": self.db_name, "q": query + self.query_tag}
+        self.last_query = query + self.query_tag
 
         try:
             response = self.httpx_client.get(
@@ -340,8 +353,10 @@ class InfluxQueryClient:
         -------
         result : `dict` or `pd.DataFrame`
         """
-
+        # Add an identifier string to the query
         params = {"db": self.db_name, "q": query + self.query_tag}
+        self.last_query = query + self.query_tag
+
         try:
             response = await self.async_client.get(
                 "/query",
