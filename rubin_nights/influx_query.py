@@ -1,3 +1,4 @@
+import getpass
 import logging
 from functools import cache
 
@@ -5,6 +6,8 @@ import httpx
 import numpy as np
 import pandas as pd
 from astropy.time import Time
+
+from .reference_values import API_ENDPOINTS
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +20,10 @@ def day_obs_from_efd_index(x: pd.Series) -> int:
     return int(dayobs_time.isot.split("T")[0].replace("-", ""))
 
 
+class RepertoireCredsError(Exception):
+    pass
+
+
 class InfluxQueryClient:
     """Query for InfluxDB data such as EFD.
 
@@ -24,10 +31,24 @@ class InfluxQueryClient:
     ----------
     site
         The site to use for the EFD, e.g. usdf, summit, base.
-        Note: `usdf-dev` does not exist, and will be replaced with `usdf`.
+        Note that influxdb sites can be special: e.g. currently
+        the EFD at USDF is only on usdf-rsp (usdf, not -dev) and
+        Sasquatch (PP metrics) is only at usdf-rsp-dev (usdf-dev).
     db_name
         The database to query.
+        Not used for credentials info, but will be used to help guide to the
+        correct location to fetch the credentials (usdf-int efd =>usdf efd).
         Default is "efd".
+    auth
+        The username and password for authentication to repertoire.
+        Note that *repertoire* auth is site-specific, even though
+        influx databases can be only available at one site (thus you may
+        need cross-site authentication). Also only usdf-rsp currently works.
+        If None, will fallback to segwarides.
+    id_tag
+        Add the service name or user name as a comment to the query.
+        This aids in tracking query sources in EFD logs.
+        If None, will be set to username.
     results_as_dataframe
         If True, convert query results into a pandas DataFrame.
         If False, results are returned as a list of dictionaries.
@@ -39,39 +60,116 @@ class InfluxQueryClient:
         self,
         site: str = "usdf",
         db_name: str = "efd",
+        auth: tuple | None = None,
+        id_tag: str | None = None,
         results_as_dataframe: bool = True,
         query_timeout: float = 5 * 60,
     ) -> None:
-        # On usdf-dev or usdf-int, still use 'usdf' as EFD endpoint.
-        if site == "usdf-dev" or site == "usdf-int":
-            site = "usdf"
-        self.site = site + "_efd"
+
+        # Site should match general user-expectations and keys in API_ENDPOINTS
+        self.site = site.lower()
+        # db_name is the identifier when sending query params to the RESTAPI
         self.db_name = db_name
+        # influx_db will be the name in repertoire for the influxdb
+        # so let's create that name from some potential values
+        # aka lsst.prompt @ usdf -> usdf_prompt
+        # aka efd @ usdf-dev -> usdfdev_efd
+        self.influx_db = f"{self.site.replace('-', '')}" + "_"
+        self.influx_db += f"{db_name.lower().replace("lsst.", "")}"
+
         self.results_as_dataframe = results_as_dataframe
         if self.results_as_dataframe:
             self.null_result = pd.DataFrame([])
         else:
             self.null_result = []
-        self.url, auth = self._fetch_credentials()
-        timeout = httpx.Timeout(query_timeout, connect=10.0)
-        self.httpx_client = httpx.Client(base_url=self.url, timeout=timeout, auth=auth)
-        self.async_client = httpx.AsyncClient(base_url=self.url, timeout=timeout, auth=auth)
 
-    def _fetch_credentials(self) -> tuple[str, tuple[str, bytes]]:
-        creds_service = f"https://roundtable.lsst.codes/segwarides/creds/{self.site}"
+        if id_tag is None:
+            id_tag = getpass.getuser()
+        self.query_tag = f" /* {id_tag} via rubin_nights.InfluxQueryClient */"
+
+        # For user convenience, save the last query.
+        self.last_query = "No query issued yet."
+
+        # Fetch the influxdb credentials.
+        if auth is not None:
+            try:
+                self.url, influx_auth = self._fetch_credentials_repertoire(auth)
+            except RepertoireCredsError:
+                logger.error("Failed to fetch credentials from repertoire. Trying segwarides.")
+                self.url, influx_auth = self._fetch_credentials_segwarides()
+        else:
+            logger.warning(
+                "Fetching influx credentials from segwarides, "
+                "without an auth token will soon be deprecated. "
+                "Please add an auth tuple to your kwarg values."
+            )
+            self.url, influx_auth = self._fetch_credentials_segwarides()
+
+        # Set up connections to influx database RestAPI endpoint.
+        timeout = httpx.Timeout(query_timeout, connect=10.0)
+        self.httpx_client = httpx.Client(base_url=self.url, timeout=timeout, auth=influx_auth)
+        self.async_client = httpx.AsyncClient(base_url=self.url, timeout=timeout, auth=influx_auth)
+
+    def _fetch_credentials_repertoire(self, auth: tuple) -> tuple[str, tuple[str, bytes]]:
+        """Fetch the credentials via repertoire.
+
+        Parameters
+        ----------
+        auth
+            The username and password for authentication to repertoire
+            (RSP/gaefaelfwr token).
+        """
+        creds_service = f"{API_ENDPOINTS[self.site]}/repertoire/discovery/influxdb/{self.influx_db}"
+        logger.debug(f"Attempting to fetch credentials from {creds_service}")
         try:
-            efd_creds = httpx.get(creds_service)
+            response = httpx.get(creds_service, auth=auth)
+            response.raise_for_status()
         except Exception as e:
-            logger.error(f"Could not fetch credentials for {self.site}")
+            logger.error(f"Could not fetch credentials from repertoire at {creds_service}.")
             logger.error(e)
-            efd_creds.raise_for_status()
-        efd_creds = efd_creds.json()
-        auth = (efd_creds["username"], efd_creds["password"])
-        url = "https://" + efd_creds["host"] + efd_creds["path"].rstrip("/")
+            raise RepertoireCredsError
+
+        # Parse the influx db credentials.
+        try:
+            influx_creds = response.json()
+        except Exception as e:
+            logger.error(f"Could not parse credentials from repertoire at {creds_service}.")
+            logger.error(e)
+            raise RepertoireCredsError
+
+        auth = (influx_creds["username"], influx_creds["password"])
+        url = influx_creds["url"]
+        logger.info(f"Fetched credentials from repertoire for {self.influx_db}.")
+        return url, auth
+
+    def _fetch_credentials_segwarides(self) -> tuple[str, tuple[str, bytes]]:
+        "Fetch the credentials via segwarides (to be deprecated)."
+        # Segwarides fallback is more complicated
+        if (self.influx_db == "usdf_efd") | (self.influx_db == "usdfdev_efd"):
+            segwarides_db = "usdf_efd"
+        elif self.influx_db == "usdf_obsenv":
+            segwarides_db = "usdf_efd"
+        else:
+            segwarides_db = "usdfdev_efd"
+        creds_service = f"https://roundtable.lsst.codes/segwarides/creds/{segwarides_db}"
+        try:
+            response = httpx.get(creds_service)
+            response.raise_for_status()
+        except Exception as e:
+            logger.error(
+                f"Could not fetch credentials from segwarides for {self.influx_db} " f"using {segwarides_db}"
+            )
+            logger.error(e)
+            raise e
+        # Parse the creds.
+        logger.info(f"Fetched credentials from segwarides for {self.influx_db}.")
+        influx_creds = response.json()
+        auth = (influx_creds["username"], influx_creds["password"])
+        url = "https://" + influx_creds["host"] + influx_creds["path"].rstrip("/")
         return url, auth
 
     def __repr__(self) -> str:
-        return f"{self.db_name} at {self.url}"
+        return f"{self.influx_db} at {self.url}"
 
     def _to_dataframe(self, response: dict) -> pd.DataFrame:
         """Convert an InfluxDB response to a dataframe.
@@ -108,7 +206,8 @@ class InfluxQueryClient:
         time_range: tuple[Time, Time] | None = None,
         filters: list[tuple[str, str]] | None = None,
     ) -> str:
-        """Build an influx DB query.
+        """Build an influx DB query for `fields` from `measurement` (topic),
+        usually over a time range.
 
         Parameters
         ----------
@@ -156,7 +255,8 @@ class InfluxQueryClient:
         time_cut: Time | None = None,
         filters: list[tuple[str, str]] | None = None,
     ) -> str:
-        """Build an influx DB query.
+        """Build an influx DB query for `fields` from `measurement`,
+        restricted to `num` records.
 
         Parameters
         ----------
@@ -201,15 +301,29 @@ class InfluxQueryClient:
         return query
 
     def query(self, query: str) -> dict | pd.DataFrame:
-        """Send a synchronous query to the InfluxDB API."""
-        params = {"db": self.db_name, "q": query}
+        """Send and receive results from the InfluxDB API,
+        with a synchronous query.
+
+        Parameters
+        ----------
+        query
+            The query to send to the InfluxDb.
+
+        Returns
+        -------
+        result : `dict` or `pd.DataFrame`
+        """
+        # Add an identifier string to the query
+        params = {"db": self.db_name, "q": query + self.query_tag}
+        self.last_query = query + self.query_tag
+
         try:
             response = self.httpx_client.get(
                 "/query",
                 params=params,
             )
-            response.raise_for_status()
             logger.debug(f"Issued query: {params['q']}")
+            response.raise_for_status()
         except Exception as e:
             logger.warning(e)
             response = None
@@ -227,8 +341,22 @@ class InfluxQueryClient:
         return result
 
     async def async_query(self, query: str) -> dict | pd.DataFrame:
-        """Send an asynchronous query to the InfluxDB API."""
-        params = {"db": self.db_name, "q": query}
+        """Send and receive results from the InfluxDB API,
+        with an asynchronous query.
+
+        Parameters
+        ----------
+        query
+            The query to send to the InfluxDb.
+
+        Returns
+        -------
+        result : `dict` or `pd.DataFrame`
+        """
+        # Add an identifier string to the query
+        params = {"db": self.db_name, "q": query + self.query_tag}
+        self.last_query = query + self.query_tag
+
         try:
             response = await self.async_client.get(
                 "/query",
@@ -300,7 +428,9 @@ class InfluxQueryClient:
         t_end: Time,
         index: int | None = None,
     ) -> str:
-        """Return data from `topic_name` between `t_start` and `t_end`.
+        """Build specific query between t_start and t_end.
+
+        Adds some logging and checks around build_influxdb_query.
 
         Parameters
         ----------
@@ -338,7 +468,8 @@ class InfluxQueryClient:
         t_end: Time,
         index: int | None = None,
     ) -> pd.DataFrame | list[dict]:
-        """Return data from `topic_name` between `t_start` and `t_end`.
+        """Sync query to return data from `topic_name`
+        between `t_start` and `t_end`.
 
         Parameters
         ----------
@@ -370,7 +501,8 @@ class InfluxQueryClient:
         t_end: Time,
         index: int | None = None,
     ) -> pd.DataFrame | list[dict]:
-        """Return data from `topic_name` between `t_start` and `t_end`.
+        """Async query to return data from `topic_name`
+        between `t_start` and `t_end`.
 
         Parameters
         ----------
@@ -402,7 +534,9 @@ class InfluxQueryClient:
         time_cut: Time = None,
         index: int | None = None,
     ) -> str:
-        """Return data from `topic_name` between `t_start` and `t_end`.
+        """Build specific query for most recent `num` records.
+
+        Adds some logging and checks around build_influxdb_top_n_query.
 
         Parameters
         ----------
@@ -440,7 +574,7 @@ class InfluxQueryClient:
         time_cut: Time = None,
         index: int | None = None,
     ) -> pd.DataFrame | list[dict]:
-        """Return data from `topic_name` between `t_start` and `t_end`.
+        """Sync query to return `num` records from `topic_name`.
 
         Parameters
         ----------
@@ -472,7 +606,7 @@ class InfluxQueryClient:
         time_cut: Time = None,
         index: int | None = None,
     ) -> pd.DataFrame | list[dict]:
-        """Return data from `topic_name` between `t_start` and `t_end`.
+        """Async query to return `num` records from `topic_name`.
 
         Parameters
         ----------

@@ -27,8 +27,9 @@ class TestConnections(unittest.TestCase):
         # Use the test tokenfile
         token = connections.get_access_token(tokenfile=self.tokenfile)
         self.assertEqual(token, self.expected_token)
-        # Use nothing (and use bad default_tokenfile
-        token = connections.get_access_token(default_tokenfile="NoToken")
+        # Use nothing
+        connections.DEFAULT_TOKENFILE = "dummy_token_does_not_exist"
+        token = connections.get_access_token()
         if os.getenv("EXTERNAL_INSTANCE_URL") is None:
             self.assertTrue(len(token) == 0)
         # This is expected to get a real token on the RSP
@@ -57,7 +58,16 @@ class TestConnections(unittest.TestCase):
             endpoints = connections.get_clients(tokenfile=tokenfile, site=site)
             self.assertTrue(isinstance(endpoints["api_base"], str))
         # Check expected clients are added to the dictionary
-        clients = ["consdb", "consdb_tap", "efd", "obsenv", "narrative_log", "exposure_log", "night_report"]
+        clients = [
+            "consdb",
+            "consdb_tap",
+            "efd",
+            "obsenv",
+            "pp",
+            "narrative_log",
+            "exposure_log",
+            "night_report",
+        ]
         endpoint_keys = list(endpoints.keys())
         self.assertTrue(len([c for c in clients if c not in endpoint_keys]) == 0)
 
