@@ -85,7 +85,7 @@ class InfluxQueryClient:
 
         if id_tag is None:
             id_tag = getpass.getuser()
-        self.query_tag = f" /* {id_tag} via rubin_nights.InfluxQueryClient */"
+        self.query_tag = f" /* source: {id_tag} via rubin_nights.InfluxQueryClient */"
 
         # For user convenience, save the last query.
         self.last_query = "No query issued yet."
