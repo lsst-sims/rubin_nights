@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 
 def logtime_to_datetime(x: pd.Series, column: str) -> str:
-    """Convert the times reported in the narrative or exposure log
-    into datetimes which can be merged with EFD indexes.
+    """Convert the times reported in the narrative or exposure log (TAI)
+    into datetimes which can be merged with EFD indexes (UTC).
 
     Use as pd.apply function like so:
 

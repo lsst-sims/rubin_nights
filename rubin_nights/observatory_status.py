@@ -154,13 +154,20 @@ def get_dome_open_close(
             x.sunset12 = sunset.utc.datetime
             x.sunrise12 = sunrise.utc.datetime
             x.night_hours = (x.sunrise12 - x.sunset12) / pd.Timedelta(1, "h")
+            # Don't count open time before sunset.
             start = np.max([x.open_time, x.sunset12])
             if not pd.isna(x.close_time):
+                # Don't count open time beyond sunrise.
                 end = np.min([x.close_time, x.sunrise12])
-                # Because sometimes we have dome open times
-                # entirely within the daytime .. let's zero those out.
-                end = np.max([end, x.sunset12])
             else:
+                # If we have not closed the dome yet .. choose sunrise?
+                end = x.sunrise12
+            # If the dome opened and closed during the daytime, disregard.
+            # Open and close in the afternoon.
+            if x.close_time < x.sunset12:
+                end = start
+            # Open and close in the morning.
+            if x.open_time > x.sunrise12:
                 end = start
             x.open_hours = (end - start) / pd.Timedelta(1, "h")
             return x
