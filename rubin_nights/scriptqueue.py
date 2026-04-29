@@ -101,7 +101,7 @@ def get_scheduler_configs(
     def build_link_to_config(x: pd.Series) -> str:
         desc_string = f"{x.config_yaml}  <br> {x.config_repo} {x.config_commit}"
         link = (
-            f"https://github.com/lsst-ts/{x.config_repo}/tree/{x.config_commit}/Scheduler/v8/{x.config_yaml}"
+            f"https://github.com/lsst-ts/{x.config_repo}/tree/{x.config_commit}/Scheduler/v9/{x.config_yaml}"
         )
         url = f'<a href="{link}" target="_blank" rel="noreferrer noopener">{desc_string}</a>'
         return url
@@ -994,6 +994,9 @@ def get_exposure_info(
             axis=1,
             inplace=True,
         )
+        idx = exp_logs.query("finalStatus == 'none'").index
+        exp_logs.loc[idx, "finalStatus"] = ""
+        exp_logs["finalStatus"] = "ExpLog " + exp_logs["finalStatus"]
         image_acquisition = pd.concat([image_acquisition, exp_logs]).sort_index()
         logger.info("Joined exposure and exposure log")
     return image_acquisition

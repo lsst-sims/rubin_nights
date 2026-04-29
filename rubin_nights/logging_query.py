@@ -533,8 +533,10 @@ class ExposureLogClient(LoggingServiceClient):
         ----------
         t_start
             Time of start of exposure log query.
+            This is translated to min_day_obs for the query.
         t_end
             Time of end of exposure log query.
+            This is translated to max_day_obs for the query.
         user_params
             Additional parameters to add or override defaults.
             Passing `{'limit': int}` can override the default limit.
@@ -542,13 +544,21 @@ class ExposureLogClient(LoggingServiceClient):
         Returns
         -------
         params : `dict`
+
+        Notes
+        -----
+        The exposure log contains the day_obs and seq_num for the exposure
+        records, as well as date_added. It does not contain the time
+        of the exposure itself directly. Thus t_start and t_end are translated
+        to less specific min_day_obs_min and max_day_obs for the query.
         """
         log_limit = 50000
+
         params = {
             "is_human": "either",
             "is_valid": "true",
-            "min_date_added": t_start.to_datetime(),
-            "max_date_added": t_end.to_datetime(),
+            "min_day_obs": int(t_start.tai.isot.split("T")[0].replace("-", "")),
+            "max_day_obs": int(t_end.tai.isot.split("T")[0].replace("-", "")),
             "limit": log_limit,
         }
         if user_params is not None:
