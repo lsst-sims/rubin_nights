@@ -100,9 +100,8 @@ def get_scheduler_configs(
 
     def build_link_to_config(x: pd.Series) -> str:
         desc_string = f"{x.config_yaml}  <br> {x.config_repo} {x.config_commit}"
-        link = (
-            f"https://github.com/lsst-ts/{x.config_repo}/tree/{x.config_commit}/Scheduler/v9/{x.config_yaml}"
-        )
+        link = f"https://github.com/lsst-ts/{x.config_repo}/tree/"
+        link += f"{x.config_commit}/Scheduler/{x.schemaVersion}/{x.config_yaml}"
         url = f'<a href="{link}" target="_blank" rel="noreferrer noopener">{desc_string}</a>'
         return url
 
