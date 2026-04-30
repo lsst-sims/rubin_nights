@@ -7,7 +7,13 @@ from astropy.time import Time
 from .dayobs_utils import day_obs_sunset_sunrise
 from .influx_query import InfluxQueryClient, day_obs_from_efd_index
 
-__all__ = ["get_dome_open_close", "mtm1m3_slewflag_times", "get_rotator_limits", "get_tma_limits"]
+__all__ = [
+    "get_dome_open_close",
+    "mtm1m3_slewflag_times",
+    "get_rotator_limits",
+    "get_tma_limits",
+    "get_mounted_bandpasses",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -103,8 +109,8 @@ def get_dome_open_close(
         close_start = None
         if len(closing) > 0:
             # Pick out the dome closing events that are first in each
-            # 5 minute interval (separate dome closing events).
-            gaps = np.where((np.diff(closing.index) / pd.Timedelta(1, "s")) > 5 * 60)[0]
+            # 3 minute interval (separate dome closing events).
+            gaps = np.where((np.diff(closing.index) / pd.Timedelta(1, "s")) > 3 * 60)[0]
             gaps += 1
             gaps = np.concatenate([np.array([0]), gaps])
             close_start = Time(closing.iloc[gaps].index.values, scale="utc").utc.datetime
@@ -358,3 +364,24 @@ def get_tma_limits(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) ->
     tma.ffill(axis=0, inplace=True)
     tma.query("index >= @index_edges[0] and index <= @index_edges[1]", inplace=True)
     return tma
+
+
+def get_mounted_bandpasses(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
+    topic = "lsst.sal.MTCamera.logevent_availableFilters"
+    # Find starting value
+    bands_start = efd_client.select_top_n(topic, ["filterTypes"], num=1, time_cut=t_start)
+    bands_during = efd_client.select_time_series(topic, ["filterTypes"], t_start, t_end)
+    bands = pd.concat([bands_start, bands_during])
+    bands.rename(columns={"filterTypes": "available_bands"}, inplace=True)
+    bands.sort_index(inplace=True)
+
+    # Reformat string of bandpass names to list, dropping "none"
+    def parse_available_bands(x: pd.Series) -> pd.Series:
+        return [
+            f'"{band.strip()}"'
+            for band in x.available_bands.split(",")
+            if band.strip() and band.strip().lower() != "none"
+        ]
+
+    bands["available_bands"] = bands.apply(parse_available_bands, axis=1)
+    return bands
