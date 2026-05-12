@@ -78,7 +78,7 @@ class InfluxQueryClient:
         # aka lsst.prompt @ usdf -> usdf_prompt
         # aka efd @ usdf-dev -> usdfdev_efd
         self.influx_db = f"{self.site.replace('-', '')}" + "_"
-        self.influx_db += f"{db_name.lower().replace("lsst.", "")}"
+        self.influx_db += f"{db_name.lower().replace('lsst.', '')}"
 
         self.results_as_dataframe = results_as_dataframe
         if self.results_as_dataframe:
