@@ -13,6 +13,9 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["InfluxQueryClient", "day_obs_from_efd_index"]
 
+# Quiet all warnings and errors related to repertoire vs segwarides
+REPERTOIRE_DEV = True
+
 
 def day_obs_from_efd_index(x: pd.Series) -> int:
     """Use with pandas apply(efd_values, axis=1) to get dayobs."""
@@ -95,14 +98,15 @@ class InfluxQueryClient:
             try:
                 self.url, influx_auth = self._fetch_credentials_repertoire(auth)
             except RepertoireCredsError:
-                logger.error("Failed to fetch credentials from repertoire. Trying segwarides.")
+                if not REPERTOIRE_DEV:
+                    logger.warning("Failed to fetch credentials from repertoire. Trying segwarides.")
                 self.url, influx_auth = self._fetch_credentials_segwarides()
         else:
-            logger.warning(
-                "Fetching influx credentials from segwarides, "
-                "without an auth token will soon be deprecated. "
-                "Please add an auth tuple to your kwarg values."
-            )
+            if not REPERTOIRE_DEV:
+                logger.warning(
+                    "Fetching influx credentials from segwarides "
+                    "will soon be deprecated. Please add an auth token. "
+                )
             self.url, influx_auth = self._fetch_credentials_segwarides()
 
         # Set up connections to influx database RestAPI endpoint.
@@ -125,8 +129,9 @@ class InfluxQueryClient:
             response = httpx.get(creds_service, auth=auth)
             response.raise_for_status()
         except Exception as e:
-            logger.error(f"Could not fetch credentials from repertoire at {creds_service}.")
-            logger.error(e)
+            if not REPERTOIRE_DEV:
+                logger.error(f"Could not fetch credentials from repertoire at {creds_service}.")
+                logger.info(e)
             raise RepertoireCredsError
 
         # Parse the influx db credentials.
@@ -134,7 +139,7 @@ class InfluxQueryClient:
             influx_creds = response.json()
         except Exception as e:
             logger.error(f"Could not parse credentials from repertoire at {creds_service}.")
-            logger.error(e)
+            logger.info(e)
             raise RepertoireCredsError
 
         auth = (influx_creds["username"], influx_creds["password"])
@@ -157,7 +162,7 @@ class InfluxQueryClient:
             response.raise_for_status()
         except Exception as e:
             logger.error(
-                f"Could not fetch credentials from segwarides for {self.influx_db} " f"using {segwarides_db}"
+                f"Could not fetch credentials from segwarides for {self.influx_db} using {creds_service}."
             )
             logger.error(e)
             raise e
