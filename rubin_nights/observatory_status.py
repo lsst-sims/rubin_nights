@@ -1,5 +1,4 @@
 import logging
-from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -15,12 +14,10 @@ __all__ = [
     "get_tma_limits",
     "get_mounted_bandpasses",
     "obs_status_state_changes",
-    "parse_observatory_status",
+    "get_observatory_state_times",
 ]
 
 logger = logging.getLogger(__name__)
-
-tz_utc = ZoneInfo("UTC")
 
 
 def get_dome_open_close(
@@ -458,13 +455,6 @@ def obs_status_state_changes(
         sunset12, sunrise12 = day_obs_sunset_sunrise(day_obs, -12)
         sunset12 = sunset12.utc
         sunrise12 = sunrise12.utc
-        # # Include only starts and ends after sunset and before sunrise.
-        # sunset12_tzaware = sunset12.to_datetime(timezone=tz_utc)
-        # ws = ws.query("time >= @sunset12_tzaware")
-        # we = we.query("time >= @sunset12_tzaware")
-        # sunrise12_tzaware = sunrise12.to_datetime(timezone=tz_utc)
-        # ws = ws.query("time >= @sunrise12_tzaware")
-        # we = we.query("time >= @sunrise12_tzaware")
         # If all messages in this night and adjacent nights are DOWN,
         # they don't show up in down_edges so mark all as down.
         if len(ws) == 0 and len(we) == 0:
@@ -548,7 +538,7 @@ def obs_status_state_changes(
     return down_summary, down_edges
 
 
-def parse_observatory_status(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
+def get_observatory_state_times(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
     """Get observatory status information."""
     # Fetch the messages.
     topic = "lsst.sal.Scheduler.logevent_observatoryStatus"
