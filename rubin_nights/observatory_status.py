@@ -1,4 +1,5 @@
 import logging
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -18,6 +19,8 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+tz_utc = ZoneInfo("UTC")
 
 
 def get_dome_open_close(
@@ -418,7 +421,16 @@ def obs_status_state_changes(
     down_edges
         The dataframe containing the messages identified as state changes.
     """
-    o = obs_status_messages.query("statusLabels != 'UNKNOWN'")
+    status_type = status_type.upper()
+    if status_type != "UNKNOWN":
+        o = obs_status_messages.query("statusLabels != 'UNKNOWN'")
+    else:
+        # You could run this for UNKNOWN. It's not obvious the implications,
+        # since unknown can occur in the middle of other downtimes,
+        # and by skipping those messages (above) we've folded the unknown
+        # into accounting for the other state.
+        # May be reasonable to consider UNKNOWN as FAULT if during the night.
+        o = obs_status_messages.copy()
     o.reset_index(inplace=True)
     # Select the previous records to those with 'status_type'
     idx = o.query("statusLabels.str.contains(@status_type)").index.values - 1
@@ -444,6 +456,15 @@ def obs_status_state_changes(
         ws = down_edges.query("day_obs == @day_obs and start")
         we = down_edges.query("day_obs == @day_obs and not start")
         sunset12, sunrise12 = day_obs_sunset_sunrise(day_obs, -12)
+        sunset12 = sunset12.utc
+        sunrise12 = sunrise12.utc
+        # # Include only starts and ends after sunset and before sunrise.
+        # sunset12_tzaware = sunset12.to_datetime(timezone=tz_utc)
+        # ws = ws.query("time >= @sunset12_tzaware")
+        # we = we.query("time >= @sunset12_tzaware")
+        # sunrise12_tzaware = sunrise12.to_datetime(timezone=tz_utc)
+        # ws = ws.query("time >= @sunrise12_tzaware")
+        # we = we.query("time >= @sunrise12_tzaware")
         # If all messages in this night and adjacent nights are DOWN,
         # they don't show up in down_edges so mark all as down.
         if len(ws) == 0 and len(we) == 0:
@@ -497,6 +518,8 @@ def obs_status_state_changes(
         else:
             # Both start and end of down within dayobs.
             starts = Time(ws.time.values, scale="utc")
+            # Only deal with faults that start before sunrise..
+            starts = starts[starts < sunrise12]
             ends = Time(we.time.values, scale="utc")
             for i in range(len(starts)):
                 start_time = starts[i]
@@ -506,20 +529,21 @@ def obs_status_state_changes(
                     # Pick the first one.
                     end_time = ends[end_time[0]]
                 else:
-                    # It must have been sunrise
+                    # No match, but it should end at sunrise.
                     end_time = sunrise12
-                if start_time < sunset12 and end_time > sunset12:
+                if start_time < sunset12:
                     start_time = sunset12
-                closure.append(
-                    [
-                        day_obs,
-                        sunset12.datetime,
-                        sunrise12.datetime,
-                        start_time.datetime,
-                        end_time.datetime,
-                        (end_time - start_time).jd * 24,
-                    ]
-                )
+                if end_time > sunset12:
+                    closure.append(
+                        [
+                            day_obs,
+                            sunset12.datetime,
+                            sunrise12.datetime,
+                            start_time.datetime,
+                            end_time.datetime,
+                            (end_time - start_time).jd * 24,
+                        ]
+                    )
     down_summary = pd.DataFrame(closure, columns=["day_obs", "sunset12", "sunrise12", "start", "end", "down"])
     return down_summary, down_edges
 
