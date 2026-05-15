@@ -13,8 +13,10 @@ __all__ = [
     "get_rotator_limits",
     "get_tma_limits",
     "get_mounted_bandpasses",
-    "obs_status_state_changes",
+    "_obs_status_state_changes",
     "get_observatory_state_times",
+    "_count_contribution",
+    "count_observatory_states",
 ]
 
 logger = logging.getLogger(__name__)
@@ -398,11 +400,10 @@ def get_mounted_bandpasses(t_start: Time, t_end: Time, efd_client: InfluxQueryCl
     return bands
 
 
-def obs_status_state_changes(
+def _obs_status_state_changes(
     obs_status_messages: pd.DataFrame, status_type: str
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Find start and end of state changes for `status_type`,
-    then consolidate into periods of downtime.
+    """Find start and end of state changes for `status_type`.
 
     Parameters
     ----------
@@ -417,6 +418,14 @@ def obs_status_state_changes(
         The dataframe containing the summary of downtime periods.
     down_edges
         The dataframe containing the messages identified as state changes.
+
+    Notes
+    -----
+    Unless the status_type is specified as UNKNOWN, this method will
+    'skip' the unknown updates, which essentially treats these as unwelcome
+    interruptions to what would otherwise be a constant state.
+    This means a WEATHER period which would be interrupted by UNKNOWN will
+    include the UNKNOWN period (likewise for FAULT or DOWNTIME).
     """
     status_type = status_type.upper()
     if status_type != "UNKNOWN":
@@ -538,8 +547,34 @@ def obs_status_state_changes(
     return down_summary, down_edges
 
 
+def _return_obs_status_messages(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
+    topic = "lsst.sal.Scheduler.logevent_observatoryStatus"
+    fields = ["status", "note", "statusLabels"]
+    obs_status_messages: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
+    if len(obs_status_messages) == 0:
+        obs_status_messages = pd.DataFrame([], columns=fields)
+    obs_status_messages["day_obs"] = obs_status_messages.apply(day_obs_from_efd_index, axis=1)
+
+
 def get_observatory_state_times(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
-    """Get observatory status information."""
+    """Get observatory status information, linked into state changes,
+    e.g. the start and end of a DOWNTIME or WEATHER period.
+
+    Parameters
+    ----------
+    t_start
+        Time of the start of the events.
+    t_end
+        Time of the end of the events.
+    efd_client
+        Sync EFD client.
+
+    Returns
+    -------
+    obs_status_periods : `pd.DataFrame`
+        A dataframe containing the start and end times of WEATHER, DOWNTIME,
+        and FAULT periods, limited by -12 to -12 twilight.
+    """
     # Fetch the messages.
     topic = "lsst.sal.Scheduler.logevent_observatoryStatus"
     fields = ["status", "note", "statusLabels"]
@@ -548,10 +583,59 @@ def get_observatory_state_times(t_start: Time, t_end: Time, efd_client: InfluxQu
         obs_status_messages = pd.DataFrame([], columns=fields)
     obs_status_messages["day_obs"] = obs_status_messages.apply(day_obs_from_efd_index, axis=1)
 
-    weather, weather_edges = obs_status_state_changes(obs_status_messages, "WEATHER")
+    weather, weather_edges = _obs_status_state_changes(obs_status_messages, "WEATHER")
     weather["type"] = "WEATHER"
-    fault, fault_edges = obs_status_state_changes(obs_status_messages, "FAULT")
+    fault, fault_edges = _obs_status_state_changes(obs_status_messages, "FAULT")
     fault["type"] = "FAULT"
-    downtime, downtime_edges = obs_status_state_changes(obs_status_messages, "DOWNTIME")
+    downtime, downtime_edges = _obs_status_state_changes(obs_status_messages, "DOWNTIME")
     downtime["type"] = "DOWNTIME"
-    return pd.concat([weather, fault, downtime]).sort_values("start", ignore_index=True)
+    obs_status_periods = pd.concat([weather, fault, downtime]).sort_values("start", ignore_index=True)
+    return obs_status_periods
+
+
+def _count_contribution(x: pd.Series, downtime_rows: pd.DataFrame) -> float:
+    """A function intended to be applied to a dataframe."""
+    # Punt on anything except fault for now.
+    if x.type != "FAULT":
+        return x.down
+    # If no downtime, return as-is.
+    downtime = downtime_rows.query("type == 'DOWNTIME' and day_obs == @x.day_obs")
+    if len(downtime) == 0:
+        return x.down
+    else:
+        # Did this period end before (any) downtime started?
+        if x.end <= downtime.start.min():
+            return x.down
+        # Did this period start after (any) downtime ended?
+        if x.start >= downtime.end.max():
+            return x.down
+        # Now this period could have overlapped a downtime
+        # Start with the full down period, and subtract off DOWNTIME overlaps
+        count_time = x.down
+        for i, down in downtime.iterrows():
+            # Does it overlap this DOWNTIME at all?
+            if x.start <= down.end and x.end >= down.start:
+                # Is it completely encapsulated by the downtime?
+                if x.start >= down.start and x.end <= down.end:
+                    return 0
+                # Otherwise, subtract off the period of downtime that overlaps
+                discount_start = max(x.start, down.start)
+                discount_end = min(x.end, down.end)
+                # These times are in pandas timestamps, convert to float hours.
+                count_time -= (discount_end - discount_start) / pd.Timedelta(hours=1)
+        return count_time
+
+
+def count_observatory_states(obs_status_periods: pd.DataFrame) -> pd.DataFrame:
+    """Add a column which 'counts' the contribution of a given observatory
+    state to the overall nightly reporting.
+
+    This could vary depending on goals.
+    Currently: this method only discounts 'fault' periods that occur
+    during DOWNTIME.
+    """
+    drows = obs_status_periods.query("type == 'DOWNTIME'")
+    obs_status_periods["down_hours"] = obs_status_periods.apply(
+        _count_contribution, downtime_rows=drows, axis=1
+    )
+    return obs_status_periods
