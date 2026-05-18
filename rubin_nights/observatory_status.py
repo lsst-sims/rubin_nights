@@ -13,6 +13,7 @@ __all__ = [
     "get_rotator_limits",
     "get_tma_limits",
     "get_mounted_bandpasses",
+    "_obs_status_time_unknown",
     "_obs_status_state_changes",
     "get_observatory_state_times",
     "_count_contribution",
@@ -400,6 +401,72 @@ def get_mounted_bandpasses(t_start: Time, t_end: Time, efd_client: InfluxQueryCl
     return bands
 
 
+def _obs_status_time_unknown(
+    obs_status_messages: pd.DataFrame,
+) -> pd.DataFrame:
+    """Find start and end of state changes for `status_type`.
+
+    Parameters
+    ----------
+    obs_status_messages
+        The dataframe containing the observatory status messages.
+
+    Returns
+    -------
+    down_summary
+        The dataframe containing the summary of downtime periods.
+
+    Notes
+    -----
+    Unless the status_type is specified as UNKNOWN or OPERATIONAL,
+    this method will 'skip' the unknown updates,
+    which essentially treats these as unwelcome interruptions to what would
+    otherwise be a constant state of FAULT or DOWNTIME or WEATHER.
+    This means a WEATHER period which would be interrupted by UNKNOWN will
+    include the UNKNOWN period (likewise for FAULT or DOWNTIME).
+    """
+    # Special case handling of unknown - only count first period during
+    # the night after transition to Nighttime.
+    closure = []
+    down_starts = obs_status_messages.query(
+        "statusLabels == 'UNKNOWN' and note.str.contains('Nighttime started')"
+    )
+    for i, row in down_starts.iterrows():
+        sunset12, sunrise12 = day_obs_sunset_sunrise(row.day_obs, -12)
+        sunset12 = sunset12.utc
+        sunrise12 = sunrise12.utc
+        q = obs_status_messages.query("day_obs == @row.day_obs and statusLabels != 'UNKNOWN' and index > @i")
+        if len(q) == 0:
+            # Stayed in UNKNOWN all night
+            closure.append(
+                [
+                    row.day_obs,
+                    sunset12.datetime,
+                    sunrise12.datetime,
+                    sunset12.datetime,
+                    sunrise12.datetime,
+                    (sunrise12 - sunset12).jd * 24,
+                ]
+            )
+        else:
+            start = Time(row.name, scale="utc")
+            start = max(start, sunset12)
+            end = Time(q.index[0], scale="utc")
+            end = max(end, sunset12)
+            closure.append(
+                [
+                    row.day_obs,
+                    sunset12.datetime,
+                    sunrise12.datetime,
+                    start.datetime,
+                    end.datetime,
+                    (end - start).jd * 24,
+                ]
+            )
+    closure = pd.DataFrame(closure, columns=["day_obs", "sunset12", "sunrise12", "start", "end", "hours"])
+    return closure
+
+
 def _obs_status_state_changes(
     obs_status_messages: pd.DataFrame, status_type: str
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -411,6 +478,7 @@ def _obs_status_state_changes(
         The dataframe containing the observatory status messages.
     status_type
         The state change (WEATHER, FAULT, DOWNTIME) to check for.
+        'UNKNOWN' should be handled by special case _obs_status_time_unknown.
 
     Returns
     -------
@@ -421,27 +489,30 @@ def _obs_status_state_changes(
 
     Notes
     -----
-    Unless the status_type is specified as UNKNOWN, this method will
-    'skip' the unknown updates, which essentially treats these as unwelcome
-    interruptions to what would otherwise be a constant state.
+    Unless the status_type is specified as UNKNOWN or OPERATIONAL,
+    this method will 'skip' the unknown updates,
+    which essentially treats these as unwelcome interruptions to what would
+    otherwise be a constant state of FAULT or DOWNTIME or WEATHER.
     This means a WEATHER period which would be interrupted by UNKNOWN will
     include the UNKNOWN period (likewise for FAULT or DOWNTIME).
     """
     status_type = status_type.upper()
-    if status_type != "UNKNOWN":
-        o = obs_status_messages.query("statusLabels != 'UNKNOWN'")
-    else:
-        # You could run this for UNKNOWN. It's not obvious the implications,
-        # since unknown can occur in the middle of other downtimes,
-        # and by skipping those messages (above) we've folded the unknown
-        # into accounting for the other state.
-        # May be reasonable to consider UNKNOWN as FAULT if during the night.
+    if status_type == "UNKNOWN":
+        logger.warning("Unknown should probably be handled by _obs_status_time_unknown instead.")
         o = obs_status_messages.copy()
+    else:
+        # Otherwise "smooth over" unknown.
+        # If the state before unknown is the same as the state after,
+        # this just skips the unknown interruption.
+        # If the state is different, the time period of unknown will
+        # be attributed to the state before the unknown period.
+        o = obs_status_messages.query("statusLabels != 'UNKNOWN'")
     o.reset_index(inplace=True)
     # Select the previous records to those with 'status_type'
     idx = o.query("statusLabels.str.contains(@status_type)").index.values - 1
     idx = idx[np.where((idx >= 0) & (idx <= len(o)))]
-    # Then select the previous records which were not 'status_type'
+    # Then select the previous records which were not 'status_type', to see
+    # where the starting point of the 'status_type' really was.
     idx = o.iloc[idx].query("not statusLabels.str.contains(@status_type)").index.values + 1
     idx = idx[np.where((idx >= 0) & (idx <= len(o)))]
     down_starts = o.iloc[idx]
@@ -517,7 +588,7 @@ def _obs_status_state_changes(
         else:
             # Both start and end of down within dayobs.
             starts = Time(ws.time.values, scale="utc")
-            # Only deal with faults that start before sunrise..
+            # Only deal with faults that start before sunrise.
             starts = starts[starts < sunrise12]
             ends = Time(we.time.values, scale="utc")
             for i in range(len(starts)):
@@ -533,6 +604,8 @@ def _obs_status_state_changes(
                 if start_time < sunset12:
                     start_time = sunset12
                 if end_time > sunset12:
+                    if end_time > sunrise12:
+                        end_time = sunrise12
                     closure.append(
                         [
                             day_obs,
@@ -543,7 +616,9 @@ def _obs_status_state_changes(
                             (end_time - start_time).jd * 24,
                         ]
                     )
-    down_summary = pd.DataFrame(closure, columns=["day_obs", "sunset12", "sunrise12", "start", "end", "down"])
+    down_summary = pd.DataFrame(
+        closure, columns=["day_obs", "sunset12", "sunrise12", "start", "end", "hours"]
+    )
     return down_summary, down_edges
 
 
@@ -589,29 +664,35 @@ def get_observatory_state_times(t_start: Time, t_end: Time, efd_client: InfluxQu
     fault["type"] = "FAULT"
     downtime, downtime_edges = _obs_status_state_changes(obs_status_messages, "DOWNTIME")
     downtime["type"] = "DOWNTIME"
-    obs_status_periods = pd.concat([weather, fault, downtime]).sort_values("start", ignore_index=True)
+    operational, operational_edges = _obs_status_state_changes(obs_status_messages, "OPERATIONAL")
+    operational["type"] = "OPERATIONAL"
+    unknown = _obs_status_time_unknown(obs_status_messages)
+    unknown["type"] = "UNKNOWN"
+    obs_status_periods = pd.concat([weather, fault, downtime, operational, unknown]).sort_values(
+        "start", ignore_index=True
+    )
     return obs_status_periods
 
 
 def _count_contribution(x: pd.Series, downtime_rows: pd.DataFrame) -> float:
-    """A function intended to be applied to a dataframe."""
+    """Apply priorities to how to count periods of downtime."""
     # Punt on anything except fault for now.
     if x.type != "FAULT":
-        return x.down
+        return x.hours
     # If no downtime, return as-is.
     downtime = downtime_rows.query("type == 'DOWNTIME' and day_obs == @x.day_obs")
     if len(downtime) == 0:
-        return x.down
+        return x.hours
     else:
         # Did this period end before (any) downtime started?
         if x.end <= downtime.start.min():
-            return x.down
+            return x.hours
         # Did this period start after (any) downtime ended?
         if x.start >= downtime.end.max():
-            return x.down
+            return x.hours
         # Now this period could have overlapped a downtime
         # Start with the full down period, and subtract off DOWNTIME overlaps
-        count_time = x.down
+        count_time = x.hours
         for i, down in downtime.iterrows():
             # Does it overlap this DOWNTIME at all?
             if x.start <= down.end and x.end >= down.start:
@@ -626,7 +707,9 @@ def _count_contribution(x: pd.Series, downtime_rows: pd.DataFrame) -> float:
         return count_time
 
 
-def count_observatory_states(obs_status_periods: pd.DataFrame) -> pd.DataFrame:
+def count_observatory_states(
+    obs_status_periods: pd.DataFrame, dome_open: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Add a column which 'counts' the contribution of a given observatory
     state to the overall nightly reporting.
 
@@ -634,8 +717,48 @@ def count_observatory_states(obs_status_periods: pd.DataFrame) -> pd.DataFrame:
     Currently: this method only discounts 'fault' periods that occur
     during DOWNTIME.
     """
+    # Apply priorities for 'contributed' hours to downtime periods
     drows = obs_status_periods.query("type == 'DOWNTIME'")
-    obs_status_periods["down_hours"] = obs_status_periods.apply(
+    obs_status_periods["contributed_hours"] = obs_status_periods.apply(
         _count_contribution, downtime_rows=drows, axis=1
     )
-    return obs_status_periods
+    # Create day_obs summaries.
+    w = (
+        obs_status_periods.query("type == 'WEATHER'")
+        .groupby("day_obs")
+        .agg({"contributed_hours": "sum"})
+        .rename({"contributed_hours": "weather_down"}, axis=1)
+    )
+    d = (
+        obs_status_periods.query("type == 'DOWNTIME'")
+        .groupby("day_obs")
+        .agg({"contributed_hours": "sum"})
+        .rename({"contributed_hours": "downtime_down"}, axis=1)
+    )
+    f = (
+        obs_status_periods.query("type == 'FAULT'")
+        .groupby("day_obs")
+        .agg({"contributed_hours": "sum"})
+        .rename({"contributed_hours": "fault_down"}, axis=1)
+    )
+    o = (
+        obs_status_periods.query("type == 'OPERATIONAL'")
+        .groupby("day_obs")
+        .agg({"contributed_hours": "sum"})
+        .rename({"contributed_hours": "operational_hours"}, axis=1)
+    )
+    u = (
+        obs_status_periods.query("type == 'UNKNOWN'")
+        .groupby("day_obs")
+        .agg({"contributed_hours": "sum"})
+        .rename({"contributed_hours": "unknown_down"}, axis=1)
+    )
+    dome = dome_open.groupby("day_obs").agg(
+        {"sunset12": "first", "sunrise12": "first", "night_hours": "first", "open_hours": "sum"}
+    )
+    summary = pd.merge(dome, w, how="outer", left_index=True, right_index=True).fillna(0)
+    summary = pd.merge(summary, d, how="outer", left_index=True, right_index=True).fillna(0)
+    summary = pd.merge(summary, f, how="outer", left_index=True, right_index=True).fillna(0)
+    summary = pd.merge(summary, o, how="outer", left_index=True, right_index=True).fillna(0)
+    summary = pd.merge(summary, u, how="outer", left_index=True, right_index=True).fillna(0)
+    return obs_status_periods, summary
