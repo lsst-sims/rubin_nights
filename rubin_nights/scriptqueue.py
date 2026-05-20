@@ -93,7 +93,7 @@ def get_scheduler_configs(
         return x.url.split("/")[-3]
 
     def strip_version(x: pd.Series) -> pd.Series:
-        return x.version.replace("heads/", "")
+        return x.version.replace("heads/", "").replace("tags/", "")
 
     def strip_yaml(x: pd.Series) -> pd.Series:
         return x.configurations.split(",")[-1]
