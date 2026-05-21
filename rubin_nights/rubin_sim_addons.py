@@ -247,7 +247,9 @@ def consdb_to_opsim(consdb_visits: pd.DataFrame) -> pd.DataFrame | None:
     nexp = np.ones(len(opsim_visits))
     night = np.floor((Time(opsim_visits["observationStartMJD"], format="mjd", scale="tai") - SURVEY_START).jd)
     target_id = np.arange(0, len(opsim_visits), 1)
-    dd = pd.DataFrame({"nexp": nexp, "night": night, "target_id": target_id}, index=opsim_visits.index)
+    dd = pd.DataFrame(
+        {"numExposures": nexp, "night": night, "target_id": target_id}, index=opsim_visits.index
+    )
     opsim_visits = opsim_visits.merge(dd, left_index=True, right_index=True, how="left")
 
     return opsim_visits
