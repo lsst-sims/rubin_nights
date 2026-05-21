@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from astropy.time import Time
 
-from .dayobs_utils import day_obs_list, day_obs_sunset_sunrise, day_obs_to_time
+from .dayobs_utils import day_obs_list, day_obs_sunset_sunrise, day_obs_sunset_sunrise_df, day_obs_to_time
 from .influx_query import InfluxQueryClient, day_obs_from_efd_index
 
 __all__ = [
@@ -13,7 +13,6 @@ __all__ = [
     "get_rotator_limits",
     "get_tma_limits",
     "get_mounted_bandpasses",
-    "_obs_status_time_unknown",
     "_obs_status_state_changes",
     "get_observatory_state_times",
     "_count_contribution",
@@ -401,70 +400,17 @@ def get_mounted_bandpasses(t_start: Time, t_end: Time, efd_client: InfluxQueryCl
     return bands
 
 
-def _obs_status_time_unknown(
-    obs_status_messages: pd.DataFrame,
-) -> pd.DataFrame:
-    """Find start and end of state changes for `status_type`.
-
-    Parameters
-    ----------
-    obs_status_messages
-        The dataframe containing the observatory status messages.
-
-    Returns
-    -------
-    down_summary
-        The dataframe containing the summary of downtime periods.
-
-    Notes
-    -----
-    Unless the status_type is specified as UNKNOWN or OPERATIONAL,
-    this method will 'skip' the unknown updates,
-    which essentially treats these as unwelcome interruptions to what would
-    otherwise be a constant state of FAULT or DOWNTIME or WEATHER.
-    This means a WEATHER period which would be interrupted by UNKNOWN will
-    include the UNKNOWN period (likewise for FAULT or DOWNTIME).
-    """
-    # Special case handling of unknown - only count first period during
-    # the night after transition to Nighttime.
-    closure = []
-    down_starts = obs_status_messages.query(
-        "statusLabels == 'UNKNOWN' and note.str.contains('Nighttime started')"
-    )
-    for i, row in down_starts.iterrows():
-        sunset12, sunrise12 = day_obs_sunset_sunrise(row.day_obs, -12)
-        sunset12 = sunset12.utc
-        sunrise12 = sunrise12.utc
-        q = obs_status_messages.query("day_obs == @row.day_obs and statusLabels != 'UNKNOWN' and index > @i")
-        if len(q) == 0:
-            # Stayed in UNKNOWN all night
-            closure.append(
-                [
-                    row.day_obs,
-                    sunset12.datetime,
-                    sunrise12.datetime,
-                    sunset12.datetime,
-                    sunrise12.datetime,
-                    (sunrise12 - sunset12).jd * 24,
-                ]
-            )
-        else:
-            start = Time(row.name, scale="utc")
-            start = max(start, sunset12)
-            end = Time(q.index[0], scale="utc")
-            end = max(end, sunset12)
-            closure.append(
-                [
-                    row.day_obs,
-                    sunset12.datetime,
-                    sunrise12.datetime,
-                    start.datetime,
-                    end.datetime,
-                    (end - start).jd * 24,
-                ]
-            )
-    closure = pd.DataFrame(closure, columns=["day_obs", "sunset12", "sunrise12", "start", "end", "hours"])
-    return closure
+def _return_obs_status_messages(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
+    """Query observatory status for Simonyi MTScheduler only."""
+    topic = "lsst.sal.Scheduler.logevent_observatoryStatus"
+    fields = ["status", "note", "statusLabels"]
+    obs_status_messages: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end, index=1)
+    if len(obs_status_messages) == 0:
+        obs_status_messages = pd.DataFrame([], columns=fields)
+    obs_status_messages["day_obs"] = obs_status_messages.apply(day_obs_from_efd_index, axis=1)
+    idx = obs_status_messages.query("statusLabels == 'WEATHER'").index
+    obs_status_messages.loc[idx, "statusLabels"] = "IDLE | WEATHER"
+    return obs_status_messages
 
 
 def _obs_status_state_changes(
@@ -498,7 +444,8 @@ def _obs_status_state_changes(
     """
     status_type = status_type.upper()
     if status_type == "UNKNOWN":
-        logger.warning("Unknown should probably be handled by _obs_status_time_unknown instead.")
+        # Do not drop UNKNOWN. We will override these later
+        # when counting up contributed hours.
         o = obs_status_messages.copy()
     else:
         # Otherwise "smooth over" unknown.
@@ -529,12 +476,17 @@ def _obs_status_state_changes(
     down_edges = pd.concat([down_starts, down_ends]).sort_values("time")
     # Summarize closures.
     closure = []
+    tnow = Time.now().utc
     for day_obs in obs_status_messages.query("statusLabels.str.contains(@status_type)").day_obs.unique():
         ws = down_edges.query("day_obs == @day_obs and start")
         we = down_edges.query("day_obs == @day_obs and not start")
         sunset12, sunrise12 = day_obs_sunset_sunrise(day_obs, -12)
         sunset12 = sunset12.utc
         sunrise12 = sunrise12.utc
+        if tnow > sunset12 and tnow < sunrise12:
+            # Special case of querying within an ongoing night.
+            # Let's just update sunrise for now, to cut 'end' times down.
+            sunrise12 = tnow
         # If all messages in this night and adjacent nights are DOWN,
         # they don't show up in down_edges so mark all as down.
         if len(ws) == 0 and len(we) == 0:
@@ -606,29 +558,21 @@ def _obs_status_state_changes(
                 if end_time > sunset12:
                     if end_time > sunrise12:
                         end_time = sunrise12
-                    closure.append(
-                        [
-                            day_obs,
-                            sunset12.datetime,
-                            sunrise12.datetime,
-                            start_time.datetime,
-                            end_time.datetime,
-                            (end_time - start_time).jd * 24,
-                        ]
-                    )
+                    if start_time != end_time:
+                        closure.append(
+                            [
+                                day_obs,
+                                sunset12.datetime,
+                                sunrise12.datetime,
+                                start_time.datetime,
+                                end_time.datetime,
+                                (end_time - start_time).jd * 24,
+                            ]
+                        )
     down_summary = pd.DataFrame(
         closure, columns=["day_obs", "sunset12", "sunrise12", "start", "end", "hours"]
     )
     return down_summary, down_edges
-
-
-def _return_obs_status_messages(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
-    topic = "lsst.sal.Scheduler.logevent_observatoryStatus"
-    fields = ["status", "note", "statusLabels"]
-    obs_status_messages: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
-    if len(obs_status_messages) == 0:
-        obs_status_messages = pd.DataFrame([], columns=fields)
-    obs_status_messages["day_obs"] = obs_status_messages.apply(day_obs_from_efd_index, axis=1)
 
 
 def get_observatory_state_times(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
@@ -650,65 +594,88 @@ def get_observatory_state_times(t_start: Time, t_end: Time, efd_client: InfluxQu
         A dataframe containing the start and end times of WEATHER, DOWNTIME,
         and FAULT periods, limited by -12 to -12 twilight.
     """
-    # Fetch the messages.
-    topic = "lsst.sal.Scheduler.logevent_observatoryStatus"
-    fields = ["status", "note", "statusLabels"]
-    obs_status_messages: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
-    if len(obs_status_messages) == 0:
-        obs_status_messages = pd.DataFrame([], columns=fields)
-    obs_status_messages["day_obs"] = obs_status_messages.apply(day_obs_from_efd_index, axis=1)
+    obs_status_messages = _return_obs_status_messages(t_start, t_end, efd_client)
 
     weather, weather_edges = _obs_status_state_changes(obs_status_messages, "WEATHER")
     weather["type"] = "WEATHER"
-    fault, fault_edges = _obs_status_state_changes(obs_status_messages, "FAULT")
-    fault["type"] = "FAULT"
     downtime, downtime_edges = _obs_status_state_changes(obs_status_messages, "DOWNTIME")
     downtime["type"] = "DOWNTIME"
+    fault, fault_edges = _obs_status_state_changes(obs_status_messages, "FAULT")
+    fault["type"] = "FAULT"
     operational, operational_edges = _obs_status_state_changes(obs_status_messages, "OPERATIONAL")
     operational["type"] = "OPERATIONAL"
-    unknown = _obs_status_time_unknown(obs_status_messages)
+    idle, idle_edges = _obs_status_state_changes(obs_status_messages, "IDLE")
+    idle["type"] = "IDLE"
+    unknown, unknown_edges = _obs_status_state_changes(obs_status_messages, "UNKNOWN")
     unknown["type"] = "UNKNOWN"
-    obs_status_periods = pd.concat([weather, fault, downtime, operational, unknown]).sort_values(
+    obs_status_periods = pd.concat([weather, downtime, fault, idle, unknown, operational]).sort_values(
         "start", ignore_index=True
     )
     return obs_status_periods
 
 
-def _count_contribution(x: pd.Series, downtime_rows: pd.DataFrame) -> float:
+def _count_contribution(x: pd.Series, obs_status_periods: pd.DataFrame) -> float:
     """Apply priorities to how to count periods of downtime."""
-    # Punt on anything except fault for now.
-    if x.type != "FAULT":
+    # Weather is always just weather and downtime trumps all.
+    if x.type == "WEATHER" or x.type == "DOWNTIME":
         return x.hours
-    # If no downtime, return as-is.
-    downtime = downtime_rows.query("type == 'DOWNTIME' and day_obs == @x.day_obs")
-    if len(downtime) == 0:
-        return x.hours
-    else:
-        # Did this period end before (any) downtime started?
-        if x.end <= downtime.start.min():
-            return x.hours
-        # Did this period start after (any) downtime ended?
-        if x.start >= downtime.end.max():
-            return x.hours
-        # Now this period could have overlapped a downtime
-        # Start with the full down period, and subtract off DOWNTIME overlaps
-        count_time = x.hours
-        for i, down in downtime.iterrows():
-            # Does it overlap this DOWNTIME at all?
-            if x.start <= down.end and x.end >= down.start:
-                # Is it completely encapsulated by the downtime?
-                if x.start >= down.start and x.end <= down.end:
-                    return 0
-                # Otherwise, subtract off the period of downtime that overlaps
-                discount_start = max(x.start, down.start)
-                discount_end = min(x.end, down.end)
-                # These times are in pandas timestamps, convert to float hours.
-                count_time -= (discount_end - discount_start) / pd.Timedelta(hours=1)
+
+    count_time = x.hours
+
+    # Downtime will override anything else.
+    # Unknown at start or end of night will override other values.
+    downtime = obs_status_periods.query("type == 'DOWNTIME' and day_obs == @x.day_obs")
+    if len(downtime) > 0:
+        # Did this period end before (any) downtime on this dayobs started?
+        # Or start after (any) downtime on this dayobs started?
+        if (x.end <= downtime.start.min()) or (x.start >= downtime.end.max()):
+            count_time = x.hours
+        else:
+            # Now this period could have overlapped a downtime
+            # Start with the full down period, subtract off DOWNTIME overlaps.
+            count_time = x.hours
+            for i, down in downtime.iterrows():
+                # Does it overlap this DOWNTIME at all?
+                if x.start <= down.end and x.end >= down.start:
+                    # Subtract off the period of downtime that overlaps.
+                    discount_start = max(x.start, down.start)
+                    discount_end = min(x.end, down.end)
+                    # From pandas timestamps, convert to float hours.
+                    count_time -= (discount_end - discount_start) / pd.Timedelta(hours=1)
+
+    # We can bail now, if downtime has reduced this value to essentially 0.
+    if count_time < 0.00001:
         return count_time
+
+    # Unknown only count at the start of the night.
+    if x.type == "UNKNOWN":
+        if x.start > x.sunset12 and x.end < x.sunrise12:
+            count_time = 0
+
+    else:
+        unknown = obs_status_periods.query("type == 'UNKNOWN' and day_obs == @x.day_obs")
+        unknown = unknown.query("(start == @x.sunset12) or (end == @x.sunrise12)")
+        if len(unknown) > 0:
+            # Check the easy thing first - if there was no overlap, continue.
+            if (x.end <= downtime.start.min()) or (x.start >= downtime.end.max()):
+                pass
+            else:
+                # If this period could have overlapped an unknown period,
+                # subtract off the additional overlap with unknown.
+                for i, down in unknown.iterrows():
+                    # Does it overlap this DOWNTIME at all?
+                    if x.start <= down.end and x.end >= down.start:
+                        # Subtract off the period of downtime that overlaps.
+                        discount_start = max(x.start, down.start)
+                        discount_end = min(x.end, down.end)
+                        # From pandas timestamps, convert to float hours.
+                        count_time -= (discount_end - discount_start) / pd.Timedelta(hours=1)
+
+    return count_time
 
 
 def count_observatory_states(
-    obs_status_periods: pd.DataFrame, dome_open: pd.DataFrame
+    obs_status_periods: pd.DataFrame, dome_open: pd.DataFrame | None = None
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Add a column which 'counts' the contribution of a given observatory
     state to the overall nightly reporting.
@@ -718,10 +685,13 @@ def count_observatory_states(
     during DOWNTIME.
     """
     # Apply priorities for 'contributed' hours to downtime periods
-    drows = obs_status_periods.query("type == 'DOWNTIME'")
-    obs_status_periods["contributed_hours"] = obs_status_periods.apply(
-        _count_contribution, downtime_rows=drows, axis=1
+    contributed_hours = obs_status_periods.apply(
+        _count_contribution, obs_status_periods=obs_status_periods, axis=1
     )
+    # Round contributions < .2 sec down to 0.
+    contributed_hours[np.where(contributed_hours < 0.2 / 60 / 60)] = 0
+    obs_status_periods["contributed_hours"] = contributed_hours
+
     # Create day_obs summaries.
     w = (
         obs_status_periods.query("type == 'WEATHER'")
@@ -747,18 +717,34 @@ def count_observatory_states(
         .agg({"contributed_hours": "sum"})
         .rename({"contributed_hours": "operational_hours"}, axis=1)
     )
+    i = (
+        obs_status_periods.query("type == 'IDLE'")
+        .groupby("day_obs")
+        .agg({"contributed_hours": "sum"})
+        .rename({"contributed_hours": "idle_down"}, axis=1)
+    )
     u = (
         obs_status_periods.query("type == 'UNKNOWN'")
         .groupby("day_obs")
         .agg({"contributed_hours": "sum"})
         .rename({"contributed_hours": "unknown_down"}, axis=1)
     )
-    dome = dome_open.groupby("day_obs").agg(
-        {"sunset12": "first", "sunrise12": "first", "night_hours": "first", "open_hours": "sum"}
-    )
-    summary = pd.merge(dome, w, how="outer", left_index=True, right_index=True).fillna(0)
-    summary = pd.merge(summary, d, how="outer", left_index=True, right_index=True).fillna(0)
-    summary = pd.merge(summary, f, how="outer", left_index=True, right_index=True).fillna(0)
-    summary = pd.merge(summary, o, how="outer", left_index=True, right_index=True).fillna(0)
-    summary = pd.merge(summary, u, how="outer", left_index=True, right_index=True).fillna(0)
+
+    if dome_open is not None:
+        dome = dome_open.groupby("day_obs").agg(
+            {"sunset12": "first", "sunrise12": "first", "night_hours": "first", "open_hours": "sum"}
+        )
+        summary = pd.merge(dome, w, how="outer", left_index=True, right_index=True)
+    else:
+        summary = day_obs_sunset_sunrise_df(
+            obs_status_periods.day_obs.min(), obs_status_periods.day_obs.max()
+        )
+        summary.set_index("day_obs", inplace=True)
+        summary = pd.merge(summary, w, how="outer", left_index=True, right_index=True)
+    summary = pd.merge(summary, d, how="outer", left_index=True, right_index=True)
+    summary = pd.merge(summary, f, how="outer", left_index=True, right_index=True)
+    summary = pd.merge(summary, o, how="outer", left_index=True, right_index=True)
+    summary = pd.merge(summary, i, how="outer", left_index=True, right_index=True)
+    summary = pd.merge(summary, u, how="outer", left_index=True, right_index=True)
+    summary = summary.fillna(0)
     return obs_status_periods, summary
