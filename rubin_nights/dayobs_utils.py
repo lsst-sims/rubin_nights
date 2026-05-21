@@ -3,6 +3,7 @@ import functools
 
 import astropy.units as u
 import numpy as np
+import pandas as pd
 from astroplan import Observer
 from astropy.coordinates.errors import UnknownSiteException
 from astropy.time import Time, TimeDelta
@@ -21,6 +22,7 @@ __all__ = [
     "day_obs_list",
     "rubin_observer",
     "day_obs_sunset_sunrise",
+    "day_obs_sunset_sunrise_df",
     "estimated_baseline_visit_range",
 ]
 
@@ -156,6 +158,18 @@ def day_obs_sunset_sunrise(day_obs: str | int, sun_alt: float = -12) -> tuple[Ti
         observer.sun_rise_time(day_obs_time, which="next", horizon=sun_alt * u.deg), format="jd", scale="tai"
     )
     return (sunset, sunrise)
+
+
+def day_obs_sunset_sunrise_df(day_obs_min: int, day_obs_max: int) -> pd.DataFrame:
+    days = day_obs_list(day_obs_to_time(day_obs_min), day_obs_to_time(day_obs_max))
+    df_rows = []
+    for day in days:
+        sunset, sunrise = day_obs_sunset_sunrise(day, sun_alt=-12)
+        night_hours = (sunrise - sunset).jd * 24
+        sunset = sunset.utc.datetime
+        sunrise = sunrise.utc.datetime
+        df_rows.append([day, sunset, sunrise, night_hours])
+    return pd.DataFrame(df_rows, columns=["day_obs", "sunset12", "sunrise12", "night_hours"])
 
 
 def estimated_baseline_visit_range(day_obs: int, relative_performance: float = 1.0) -> dict[str, int]:
