@@ -3,6 +3,7 @@ import functools
 
 import astropy.units as u
 import numpy as np
+import pandas as pd
 from astroplan import Observer
 from astropy.coordinates.errors import UnknownSiteException
 from astropy.time import Time, TimeDelta
@@ -17,8 +18,11 @@ __all__ = [
     "day_obs_int_to_str",
     "day_obs_to_date",
     "day_obs_to_time",
+    "mjd_to_dayobs",
+    "day_obs_list",
     "rubin_observer",
     "day_obs_sunset_sunrise",
+    "day_obs_sunset_sunrise_df",
     "estimated_baseline_visit_range",
 ]
 
@@ -77,6 +81,40 @@ def day_obs_to_time(day_obs: int | str) -> Time:
         return Time(f"{day_obs}T12:00:00", format="isot", scale="tai")
 
 
+def mjd_to_dayobs(mjd: float) -> int:
+    """Convert MJD to day_obs integer YYYYMMDD.
+
+    Parameters
+    ----------
+    mjd
+        Modified Julian Date to convert to day_obs integer YYYYMMDD.
+
+    Returns
+    -------
+    day_obs : `int`
+        Day_obs integer YYYYMMDD.
+
+
+    Examples
+    --------
+    Convert a pandas dataframe column of MJD values to ``day_obs`` values:
+
+    >>> visits["day_obs"] = visits["mjd_col"].apply(mjd_to_dayobs)
+    """
+    mjdfloor = Time(np.floor(mjd - 0.5) + 0.5, format="mjd", scale="tai")
+    return day_obs_str_to_int(mjdfloor.isot.split("T")[0])
+
+
+def day_obs_list(t_start: Time, t_end: Time) -> list[int]:
+    """Return a list of all day_obs values between t_start and t_end."""
+    one_day = TimeDelta(1, format="jd")
+    # convert to time of 'day_obs' start
+    time_day_obs_start = day_obs_to_time(time_to_day_obs(t_start))
+    time_day_obs_end = day_obs_to_time(time_to_day_obs(t_end))
+    days = time_day_obs_start + one_day * np.arange(0, (time_day_obs_end - time_day_obs_start).jd + 0.5)
+    return [day_obs_str_to_int(time_to_day_obs(d)) for d in days]
+
+
 @functools.cache
 def rubin_observer() -> Observer:
     try:
@@ -87,6 +125,7 @@ def rubin_observer() -> Observer:
     return observer
 
 
+@functools.lru_cache(maxsize=100)
 def day_obs_sunset_sunrise(day_obs: str | int, sun_alt: float = -12) -> tuple[Time, Time]:
     """Return the civil sunset and sunrise for day_obs.
 
@@ -119,6 +158,18 @@ def day_obs_sunset_sunrise(day_obs: str | int, sun_alt: float = -12) -> tuple[Ti
         observer.sun_rise_time(day_obs_time, which="next", horizon=sun_alt * u.deg), format="jd", scale="tai"
     )
     return (sunset, sunrise)
+
+
+def day_obs_sunset_sunrise_df(day_obs_min: int, day_obs_max: int) -> pd.DataFrame:
+    days = day_obs_list(day_obs_to_time(day_obs_min), day_obs_to_time(day_obs_max))
+    df_rows = []
+    for day in days:
+        sunset, sunrise = day_obs_sunset_sunrise(day, sun_alt=-12)
+        night_hours = (sunrise - sunset).jd * 24
+        sunset = sunset.utc.datetime
+        sunrise = sunrise.utc.datetime
+        df_rows.append([day, sunset, sunrise, night_hours])
+    return pd.DataFrame(df_rows, columns=["day_obs", "sunset12", "sunrise12", "night_hours"])
 
 
 def estimated_baseline_visit_range(day_obs: int, relative_performance: float = 1.0) -> dict[str, int]:

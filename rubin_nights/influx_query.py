@@ -1,6 +1,8 @@
 import getpass
 import logging
+from datetime import datetime
 from functools import cache
+from zoneinfo import ZoneInfo
 
 import httpx
 import numpy as np
@@ -11,7 +13,14 @@ from .reference_values import API_ENDPOINTS
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["InfluxQueryClient", "day_obs_from_efd_index"]
+__all__ = [
+    "InfluxQueryClient",
+    "day_obs_from_efd_index",
+    "convert_time_to_tz_datetime",
+]
+
+
+TZ_UTC = ZoneInfo("UTC")
 
 # Quiet all warnings and errors related to repertoire vs segwarides
 REPERTOIRE_DEV = True
@@ -21,6 +30,15 @@ def day_obs_from_efd_index(x: pd.Series) -> int:
     """Use with pandas apply(efd_values, axis=1) to get dayobs."""
     dayobs_time = Time(np.floor(Time(x.name, scale="utc").tai.mjd - 0.5), format="mjd", scale="tai")
     return int(dayobs_time.isot.split("T")[0].replace("-", ""))
+
+
+def convert_time_to_tz_datetime(time: Time) -> datetime:
+    """Convert astropy Time to datetime.datetime with UTC timezone.
+
+    Useful for when you want to select EFD entries based on a Time,
+    as the EFD indexes are timezone-aware datetimes.
+    """
+    return time.to_datetime(timezone=TZ_UTC)
 
 
 class RepertoireCredsError(Exception):
