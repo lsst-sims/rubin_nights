@@ -401,15 +401,35 @@ def get_mounted_bandpasses(t_start: Time, t_end: Time, efd_client: InfluxQueryCl
 
 
 def _return_obs_status_messages(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
-    """Query observatory status for Simonyi MTScheduler only."""
+    """Query observatory status for Simonyi MTScheduler only.
+
+    Parameters
+    ----------
+    t_start
+        Time of the start of the events.
+    t_end
+        Time of the end of the events.
+    efd_client
+        Sync EFD client.
+
+    Returns
+    -------
+    obs_status_messages
+        DataFrame with observatory status messages.
+        WEATHER messages with no other state are updated to IDLE | WEATHER
+        and day_obs is added as a column to the dataframe.
+    """
     topic = "lsst.sal.Scheduler.logevent_observatoryStatus"
     fields = ["status", "note", "statusLabels"]
     obs_status_messages: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end, index=1)
     if len(obs_status_messages) == 0:
         obs_status_messages = pd.DataFrame([], columns=fields)
     obs_status_messages["day_obs"] = obs_status_messages.apply(day_obs_from_efd_index, axis=1)
+    # WEATHER or DOWNTIME alone should match with IDLE
     idx = obs_status_messages.query("statusLabels == 'WEATHER'").index
     obs_status_messages.loc[idx, "statusLabels"] = "IDLE | WEATHER"
+    idx = obs_status_messages.query("statusLabels == 'DOWNTIME'").index
+    obs_status_messages.loc[idx, "statusLabels"] = "IDLE | DOWNTIME"
     return obs_status_messages
 
 
@@ -417,6 +437,10 @@ def _obs_status_state_changes(
     obs_status_messages: pd.DataFrame, status_type: str
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Find start and end of state changes for `status_type`.
+
+    Assumes that WEATHER and DOWNTIME are descriptive and exist
+    together with other states.
+    However OPERATIONAL, FAULT, IDLE and UNKNOWN are 'exclusive'.
 
     Parameters
     ----------
@@ -443,17 +467,13 @@ def _obs_status_state_changes(
     include the UNKNOWN period (likewise for FAULT or DOWNTIME).
     """
     status_type = status_type.upper()
-    if status_type == "UNKNOWN":
+    # If in one of the descriptive states, drop UNKNOWN.
+    if status_type in ("WEATHER", "DOWNTIME"):
+        o = obs_status_messages.query("statusLabels != 'UNKNOWN'")
+    else:
         # Do not drop UNKNOWN. We will override these later
         # when counting up contributed hours.
         o = obs_status_messages.copy()
-    else:
-        # Otherwise "smooth over" unknown.
-        # If the state before unknown is the same as the state after,
-        # this just skips the unknown interruption.
-        # If the state is different, the time period of unknown will
-        # be attributed to the state before the unknown period.
-        o = obs_status_messages.query("statusLabels != 'UNKNOWN'")
     o.reset_index(inplace=True)
     # Select the previous records to those with 'status_type'
     idx = o.query("statusLabels.str.contains(@status_type)").index.values - 1
@@ -592,7 +612,8 @@ def get_observatory_state_times(t_start: Time, t_end: Time, efd_client: InfluxQu
     -------
     obs_status_periods : `pd.DataFrame`
         A dataframe containing the start and end times of WEATHER, DOWNTIME,
-        and FAULT periods, limited by -12 to -12 twilight.
+        IDLE, UNKNOWN, FAULT and OPERATIONAL periods,
+        limited by -12 to -12 twilight.
     """
     obs_status_messages = _return_obs_status_messages(t_start, t_end, efd_client)
 
@@ -622,8 +643,8 @@ def _count_contribution(x: pd.Series, obs_status_periods: pd.DataFrame) -> float
 
     count_time = x.hours
 
-    # Downtime will override anything else.
-    # Unknown at start or end of night will override other values.
+    # Downtime will override an exclusive state.
+    # Otherwise must just count up unknown, idle, fault, and operational.
     downtime = obs_status_periods.query("type == 'DOWNTIME' and day_obs == @x.day_obs")
     if len(downtime) > 0:
         # Did this period end before (any) downtime on this dayobs started?
@@ -642,34 +663,6 @@ def _count_contribution(x: pd.Series, obs_status_periods: pd.DataFrame) -> float
                     discount_end = min(x.end, down.end)
                     # From pandas timestamps, convert to float hours.
                     count_time -= (discount_end - discount_start) / pd.Timedelta(hours=1)
-
-    # We can bail now, if downtime has reduced this value to essentially 0.
-    if count_time < 0.00001:
-        return count_time
-
-    # Unknown only count at the start of the night.
-    if x.type == "UNKNOWN":
-        if x.start > x.sunset12 and x.end < x.sunrise12:
-            count_time = 0
-
-    else:
-        unknown = obs_status_periods.query("type == 'UNKNOWN' and day_obs == @x.day_obs")
-        unknown = unknown.query("(start == @x.sunset12) or (end == @x.sunrise12)")
-        if len(unknown) > 0:
-            # Check the easy thing first - if there was no overlap, continue.
-            if (x.end <= downtime.start.min()) or (x.start >= downtime.end.max()):
-                pass
-            else:
-                # If this period could have overlapped an unknown period,
-                # subtract off the additional overlap with unknown.
-                for i, down in unknown.iterrows():
-                    # Does it overlap this DOWNTIME at all?
-                    if x.start <= down.end and x.end >= down.start:
-                        # Subtract off the period of downtime that overlaps.
-                        discount_start = max(x.start, down.start)
-                        discount_end = min(x.end, down.end)
-                        # From pandas timestamps, convert to float hours.
-                        count_time -= (discount_end - discount_start) / pd.Timedelta(hours=1)
 
     return count_time
 
