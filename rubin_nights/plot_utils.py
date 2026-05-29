@@ -1,6 +1,8 @@
+import functools
 import logging
 import warnings
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -16,7 +18,7 @@ try:
 except ModuleNotFoundError:
     warnings.warn("Healpy used for some quick plots.")
 
-__all__ = ["PlotStyles", "hp_laea", "hp_moll", "detector_plot"]
+__all__ = ["PlotStyles", "hp_laea", "hp_moll", "detector_plot", "lsst_camera_df"]
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +125,7 @@ def detector_plot(
         vmax = np.nanmax(detector_values[key].values)
     norm = Normalize(vmin=vmin, vmax=vmax)
 
-    tmp = pd.merge(camera_df, detector_values, how="right", left_on="detId", right_on="detector")
+    tmp = pd.merge(camera_df, detector_values, how="outer", left_on="detId", right_on="detector")
 
     patches = []
     for det, row in tmp.iterrows():
@@ -178,3 +180,11 @@ def detector_plot(
     if isinstance(fig, Figure):
         fig.tight_layout()
     return fig, ax
+
+
+@functools.cache
+def lsst_camera_df() -> pd.DataFrame:
+    """Return a dataframe containing the outline of the camera footprint."""
+    package_dir = Path(__file__).resolve().parent
+    camera_path = package_dir / "data" / "lsstCamera.h5"
+    return pd.read_hdf(camera_path)
