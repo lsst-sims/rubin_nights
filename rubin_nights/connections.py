@@ -113,6 +113,7 @@ def get_clients(
     site
         Override site location to a preferred site.
         Most likely to be used to specify `usdf-dev` vs `usdf`.
+        Note that this should be equivalent to the repertoire discovery site.
     auth_token
         The bare authentication token string.
         If not None, this will override any tokenfile argument.
@@ -176,9 +177,15 @@ def get_clients(
     consdb_query = ConsDbFastAPI(api_base, auth)
     consdb_tap = ConsDbTap(api_base, token=token)
 
-    # We'll pass along the auth for the InfluxQueryClients
-    # although there's still work to be done on auth + service site.
-    efd_client = InfluxQueryClient(site, db_name="efd", auth=auth)
+    # Handle efd carefully -- if the site is summit, we want to
+    # first try to call out to USDF EFD instead
+    efd_client = InfluxQueryClient("usdf", db_name="efd", repertoire_site=site, auth=auth)
+    # But now check if the network is down:
+    if len(efd_client.get_topics()) == 0:
+        logger.warning(f"EFD service not available at USDF. Falling back to {site}.")
+        efd_client = InfluxQueryClient(site, db_name="efd", repertoire_site=site, auth=auth)
+    # We'll pass along the auth for the InfluxQueryClients although
+    # they are not in repertoire yet.
     obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv", auth=auth)
     pp_client = InfluxQueryClient(site, db_name="lsst.prompt", auth=auth)
     # Some special clients that are site-agnostic (only one location)
@@ -187,8 +194,10 @@ def get_clients(
     # Be extra helpful with environment variables if using USDF for LFA
     if "usdf" in site:
         # And some env variables for S3 through USDF
-        os.environ["LSST_DISABLE_BUCKET_VALIDATION"] = "1"
-        os.environ["S3_ENDPOINT_URL"] = "https://s3dfrgw.slac.stanford.edu/"
+        if os.environ.get("LSST_DISABLE_BUCKET_VALIDATION") is None:
+            os.environ["LSST_DISABLE_BUCKET_VALIDATION"] = "1"
+        if os.environ.get("S3_ENDPOINT_URL") is None:
+            os.environ["S3_ENDPOINT_URL"] = "https://s3dfrgw.slac.stanford.edu/"
     # Or if you're actually using one of the USDF RSPs (or kubernetes)
     if "usdf" in os.getenv("EXTERNAL_INSTANCE_URL", ""):
         if os.getenv("RUBIN_SIM_DATA_DIR") is None:
