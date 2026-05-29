@@ -51,15 +51,18 @@ class InfluxQueryClient:
     Parameters
     ----------
     site
-        The site to use for the EFD, e.g. usdf, summit, base.
+        The site to use for the influx db, e.g. usdf, summit, base.
         Note that influxdb sites can be special: e.g. currently
         the EFD at USDF is only on usdf-rsp (usdf, not -dev) and
-        Sasquatch (PP metrics) is only at usdf-rsp-dev (usdf-dev).
+        the creds for the EFD at USDF are also served at summit.
     db_name
         The database to query.
-        Not used for credentials info, but will be used to help guide to the
-        correct location to fetch the credentials (usdf-int efd =>usdf efd).
         Default is "efd".
+    repertoire_site
+        The site to use for repertoire discovery for influx credentials.
+        Does not necessarily have to be the same as 'site' for the influx db,
+        but should match the auth token.
+        If None, will match 'site'.
     auth
         The username and password for authentication to repertoire.
         Note that *repertoire* auth is site-specific, even though
@@ -81,6 +84,7 @@ class InfluxQueryClient:
         self,
         site: str = "usdf",
         db_name: str = "efd",
+        repertoire_site: str | None = None,
         auth: tuple | None = None,
         id_tag: str | None = None,
         results_as_dataframe: bool = True,
@@ -90,13 +94,17 @@ class InfluxQueryClient:
         # Site should match general user-expectations and keys in API_ENDPOINTS
         self.site = site.lower()
         # db_name is the identifier when sending query params to the RESTAPI
+        # Will be used in gathering credentials from repertoire (probably?)
         self.db_name = db_name
-        # influx_db will be the name in repertoire for the influxdb
-        # so let's create that name from some potential values
-        # aka lsst.prompt @ usdf -> usdf_prompt
-        # aka efd @ usdf-dev -> usdfdev_efd
+        # influx_db will be the name in repertoire for the influxdb.
         self.influx_db = f"{self.site.replace('-', '')}" + "_"
+        # this part is a guess...
         self.influx_db += f"{db_name.lower().replace('lsst.', '')}"
+
+        if repertoire_site is None:
+            self.repertoire_site = self.site
+        else:
+            self.repertoire_site = repertoire_site
 
         self.results_as_dataframe = results_as_dataframe
         if self.results_as_dataframe:
@@ -112,7 +120,8 @@ class InfluxQueryClient:
         self.last_query = "No query issued yet."
 
         # Fetch the influxdb credentials.
-        if auth is not None:
+        # currently repertoire only knows about <site>_efd.
+        if auth is not None and self.db_name == "efd":
             try:
                 self.url, influx_auth = self._fetch_credentials_repertoire(auth)
             except RepertoireCredsError:
@@ -141,7 +150,9 @@ class InfluxQueryClient:
             The username and password for authentication to repertoire
             (RSP/gaefaelfwr token).
         """
-        creds_service = f"{API_ENDPOINTS[self.site]}/repertoire/discovery/influxdb/{self.influx_db}"
+        creds_service = (
+            f"{API_ENDPOINTS[self.repertoire_site]}/repertoire/discovery/influxdb/{self.influx_db}"
+        )
         logger.debug(f"Attempting to fetch credentials from {creds_service}")
         try:
             response = httpx.get(creds_service, auth=auth)
@@ -163,18 +174,12 @@ class InfluxQueryClient:
         auth = (influx_creds["username"], influx_creds["password"])
         url = influx_creds["url"]
         logger.info(f"Fetched credentials from repertoire for {self.influx_db}.")
+        self.creds_from = "repertoire"
         return url, auth
 
     def _fetch_credentials_segwarides(self) -> tuple[str, tuple[str, bytes]]:
         "Fetch the credentials via segwarides (to be deprecated)."
-        # Segwarides fallback is more complicated
-        if (self.influx_db == "usdf_efd") | (self.influx_db == "usdfdev_efd"):
-            segwarides_db = "usdf_efd"
-        elif self.influx_db == "usdf_obsenv":
-            segwarides_db = "usdf_efd"
-        else:
-            segwarides_db = "usdfdev_efd"
-        creds_service = f"https://roundtable.lsst.codes/segwarides/creds/{segwarides_db}"
+        creds_service = "https://roundtable.lsst.codes/segwarides/creds/usdf_efd"
         try:
             response = httpx.get(creds_service)
             response.raise_for_status()
@@ -189,6 +194,7 @@ class InfluxQueryClient:
         influx_creds = response.json()
         auth = (influx_creds["username"], influx_creds["password"])
         url = "https://" + influx_creds["host"] + influx_creds["path"].rstrip("/")
+        self.creds_from = "segwarides"
         return url, auth
 
     def __repr__(self) -> str:
