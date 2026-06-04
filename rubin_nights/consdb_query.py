@@ -426,10 +426,8 @@ class ConsDbSql(ConsDb):
             self.conn_str = connection_string
 
         self.engine = sqlalchemy.create_engine(self.conn_str)
-        self.conn = self.engine.connect()
 
     def __del__(self) -> None:
-        self.conn.close()
         self.engine.dispose()
 
     def __repr__(self) -> str:
@@ -447,10 +445,13 @@ class ConsDbSql(ConsDb):
         -------
         results : `pd.DataFrame`
         """
+        # engine.begin() opens a transaction scoped to this query and commits
+        # on success or rolls back on error, so no connection is left idle in
+        # transaction once the query returns.
         try:
-            result = pd.read_sql(query, self.conn)
+            with self.engine.begin() as conn:
+                result = pd.read_sql(query, conn)
         except ProgrammingError as e:
-            self.conn.rollback()
             logger.error(e)
             result = pd.DataFrame([])
         return result
