@@ -58,11 +58,14 @@ class InfluxQueryClient:
     db_name
         The database to query.
         Default is "efd".
-    repertoire_site
-        The site to use for repertoire discovery for influx credentials.
-        Does not necessarily have to be the same as 'site' for the influx db,
+    api_base
+        The base uri to use for repertoire discovery of influx credentials.
+        This is something like `reference_values.API_ENDPOINTS[site]`,
+        If `connections.get_clients` is used to gather the client connections,
+        this value will be set automatically.
+        It des not necessarily have match the 'site' for the influx db,
         but should match the auth token.
-        If None, will match 'site'.
+        If None, will match the value for 'site'.
     auth
         The username and password for authentication to repertoire.
         Note that *repertoire* auth is site-specific, even though
@@ -84,7 +87,7 @@ class InfluxQueryClient:
         self,
         site: str = "usdf",
         db_name: str = "efd",
-        repertoire_site: str | None = None,
+        api_base: str | None = None,
         auth: tuple | None = None,
         id_tag: str | None = None,
         results_as_dataframe: bool = True,
@@ -101,10 +104,10 @@ class InfluxQueryClient:
         # this part is a guess...
         self.influx_db += f"{db_name.lower().replace('lsst.', '')}"
 
-        if repertoire_site is None:
-            self.repertoire_site = self.site
+        if api_base is None:
+            self.api_base = API_ENDPOINTS[self.site]
         else:
-            self.repertoire_site = repertoire_site
+            self.api_base = api_base
 
         self.results_as_dataframe = results_as_dataframe
         if self.results_as_dataframe:
@@ -120,8 +123,7 @@ class InfluxQueryClient:
         self.last_query = "No query issued yet."
 
         # Fetch the influxdb credentials.
-        # currently repertoire only knows about <site>_efd.
-        if auth is not None and self.db_name == "efd":
+        if auth is not None:
             try:
                 self.url, influx_auth = self._fetch_credentials_repertoire(auth)
             except RepertoireCredsError:
@@ -150,17 +152,14 @@ class InfluxQueryClient:
             The username and password for authentication to repertoire
             (RSP/gaefaelfwr token).
         """
-        creds_service = (
-            f"{API_ENDPOINTS[self.repertoire_site]}/repertoire/discovery/influxdb/{self.influx_db}"
-        )
+        creds_service = f"{self.api_base}/repertoire/discovery/influxdb/{self.influx_db}"
         logger.debug(f"Attempting to fetch credentials from {creds_service}")
         try:
             response = httpx.get(creds_service, auth=auth)
             response.raise_for_status()
         except Exception as e:
-            if not REPERTOIRE_DEV:
-                logger.error(f"Could not fetch credentials from repertoire at {creds_service}.")
-                logger.info(e)
+            logger.error(f"Could not fetch credentials from repertoire at {creds_service}.")
+            logger.info(e)
             raise RepertoireCredsError
 
         # Parse the influx db credentials.
