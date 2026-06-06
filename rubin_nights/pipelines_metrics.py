@@ -41,7 +41,7 @@ def diasource_visit_summaries(
     dia_det: pd.DataFrame = influx_client.select_time_series(
         topic, ["visit", "detector", "numAllDiaSources", "numGoodDiaSources", "run"], t_start, t_end
     )
-    logger.info(f"Retrieved {len(dia_det)} records from {topic}, from {len(dia_det.run.unique())} runs.")
+    logger.info(f"Retrieved {len(dia_det)} records from {topic}.")
 
     if len(dia_det) > 0:
         alertsum = dia_det.groupby("visit").agg(
@@ -69,7 +69,7 @@ def diasource_visit_summaries(
     sso_det: pd.DataFrame = influx_client.select_time_series(
         topic, ["visit", "detector", "NumSsObjectsMetric", "run"], t_start, t_end
     )
-    logger.info(f"Retrieved {len(sso_det)} records from {topic}, from {len(sso_det.run.unique())} runs.")
+    logger.info(f"Retrieved {len(sso_det)} records from {topic}.")
 
     if len(sso_det) > 0:
         ssosum = sso_det.groupby("visit").agg({"NumSsObjectsMetric": "sum", "detector": "count"})
@@ -86,7 +86,7 @@ def diasource_visit_summaries(
     asso_det: pd.DataFrame = influx_client.select_time_series(
         topic, ["visit", "detector", "NumSsObjectsMetric", "run"], t_start, t_end
     )
-    logger.info(f"Retrieved {len(asso_det)} records from {topic}, from {len(asso_det.run.unique())} runs.")
+    logger.info(f"Retrieved {len(asso_det)} records from {topic}.")
 
     if len(asso_det) > 0:
         assosum = asso_det.groupby("visit").agg({"NumSsObjectsMetric": "sum", "detector": "count"})
