@@ -22,8 +22,9 @@ Two query interfaces are available inside and outside the USDF:
 
 
 One additional interface is available only within the USDF:
+
 * **ConsDbSql** - a direct sqlalchemy connection to the ConsDB is available
-within the USDF. This client just runs queries using sqlalchemy + pandas.
+  within the USDF. This client just runs queries using sqlalchemy + pandas.
 
 All interfaces return pandas DataFrames. The FastAPI and TAP interfaces
 are similar in speed in general, but may vary depending on exact queries.
