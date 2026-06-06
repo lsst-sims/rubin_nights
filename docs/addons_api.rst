@@ -37,3 +37,8 @@ Some additional data can be gathered by querying multiple sources.
     :members:
     :show-inheritance:
 
+.. automodule:: rubin_nights.pipelines_metrics
+    :imported-members:
+    :members:
+    :show-inheritance:
+
