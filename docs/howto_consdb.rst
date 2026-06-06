@@ -5,10 +5,13 @@
 Querying the ConsDB
 ===================
 
-The Consolidated Database (ConsDB) stores per-visit metadata including pointing
+The Consolidated Database of Image Metadata (ConsDB) stores per-visit metadata including pointing
 information, image quality metrics, and exposure parameters.
+The `ConsDb documentation <https://consdb.lsst.io/user-guide/index.html>`_
+contains more information about the tables and additional connection
+utilities.
 See `sdm-schemas.lsst.io <https://sdm-schemas.lsst.io>`_ for the full schema and
-`DMTN-227 <https://dmtn-227.lsst.io>`_ for an overview of the ConsDB.
+`DMTN-227 <https://dmtn-227.lsst.io>`_ for additional background information.
 
 Two query interfaces are available inside and outside the USDF:
 

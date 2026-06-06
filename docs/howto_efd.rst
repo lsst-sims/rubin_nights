@@ -9,10 +9,13 @@ The Engineering and Facilities Database (EFD) is a time-series store fed by the 
 Observatory Control System via SAL.  It is backed by InfluxDB and can be queried through
 :class:`~influx_query.InfluxQueryClient`.
 
-See also the `lsst-efd-client documentation <https://efd-client.lsst.io>`_ for a
-full-featured async client; ``rubin_nights`` provides a simpler client, with both
-synchronous and asynchronous capability. The ``rubin_nights`` API is intended
-to mimic the ``lsst_efd_client.EfdClient`` API.
+See also the `lsst-efd-client <https://efd-client.lsst.io>`_ for a
+full-featured async client; ``rubin_nights`` provides a similar
+but slightly simpler client, with both
+synchronous and asynchronous capability intended to
+mimic the basic ``lsst_efd_client.EfdClient`` API.  Additional documentation
+about querying the EFD, including InfluxQL queries, is available
+in the `lsst-efd-client documentation <https://efd-client.lsst.io>`_.
 
 The full EFD schema is documented at `ts-xml.lsst.io <https://ts-xml.lsst.io>`_.
 Each SAL component (CSC) exposes commands, events, and telemetry as separate topics.
