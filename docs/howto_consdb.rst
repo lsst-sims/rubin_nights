@@ -16,9 +16,10 @@ See `sdm-schemas.lsst.io <https://sdm-schemas.lsst.io>`_ for the full schema and
 Two query interfaces are available inside and outside the USDF:
 
 * **FastAPI** (``endpoints["consdb"]``) — an interface to the pqserver REST API
-interface of ConsDB. Provides an interface for pure SQL queries.
+  interface of ConsDB. Provides an interface for pure SQL queries.
 * **TAP** (``endpoints["consdb_tap"]``) — a TAP interface to the ConsDB.
-Provides a way to send ADQL queries as well as SQL.
+  Provides a way to send ADQL queries as well as SQL.
+
 
 One additional interface is available only within the USDF:
 * **ConsDbSql** - a direct sqlalchemy connection to the ConsDB is available

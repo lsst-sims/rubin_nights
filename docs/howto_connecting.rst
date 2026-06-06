@@ -32,7 +32,7 @@ A usdf (prod) token cannot be used to authenticate for usdf-dev services,
 3. The environment variable ``ACCESS_TOKEN``.
 4. The path given by the environment variable ``ACCESS_TOKEN_FILE``.
 5. ``~/.lsst/usdf_rsp`` (the default file location, with a name that
-suggests the usdf-prod RSP services).
+   suggests the usdf-prod RSP services).
 
 Connecting to all services at once
 ------------------------------------

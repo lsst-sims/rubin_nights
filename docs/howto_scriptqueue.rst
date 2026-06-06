@@ -120,7 +120,7 @@ The individual building blocks used by :func:`~scriptqueue.get_consolidated_mess
 are also available directly:
 
 * :func:`~scriptqueue.get_all_tracebacks` — get tracebacks from all CSCs with logevent_logMessage topics, except the ScriptQueue.
-* :func:`~scriptqueue.get_errors` — get error messages from all CSCs with logevent_errorCode messages.
+* :func:`~scriptqueue.get_error_codes` — get error messages from all CSCs with logevent_errorCode messages.
 * :func:`~scriptqueue.get_narrative_and_errors` — get narrative log entries and error messages.
 * :func:`~scriptqueue.get_exposure_info` — get exposure endOfImageTelemetry records and join with exposure_log records.
 * :func:`~scriptqueue.get_script_status` - get the summarized ScriptQueue records.
