@@ -2,21 +2,30 @@
 
 .. _howto_alerts:
 
-Alert Stream and Pipelines Metrics
-====================================
+Prompt Processing Metrics
+=========================
 
-The Prompt Processing pipeline publishes per-detector metrics to InfluxDB under the
-``lsst.prompt.prod`` measurement namespace.  These include DiaSource counts, solar
+The Prompt Processing pipeline publishes per-detector metrics to InfluxDB in the
+``lsst.prompt`` database.  These include DiaSource counts, solar
 system object associations, and image quality metrics for each processed visit.
 
 The ``endpoints["pp"]`` client returned by :func:`~connections.get_clients` connects
-to the relevant ``lsst.prompt`` InfluxDB database.
+to the relevant ``lsst.prompt`` InfluxDB database. The topics related to prompt
+processing start with ``lsst.prompt.prod``.
 
 
-Querying prompt metrics directly
----------------------------------
+Querying prompt processing metrics directly
+-------------------------------------------
 
-To fetch the raw per-detector records from a specific topic:
+Just like with any InfluxDb measurement, records can be
+queried directly. The primary indexes are on time, so
+querying records from a particular timespan generally works
+best. There are some additional "tags" which work like indexes
+for influx, but querying based on parameters outside of that
+set of tags is slow.
+
+Generally prompt processing metrics are recorded per-detector.
+To fetch the records from a specific topic:
 
 .. code-block:: python
 
@@ -29,12 +38,12 @@ To fetch the raw per-detector records from a specific topic:
 
 
 
-Using the convenience function
--------------------------------
+Querying for all DiaSources per visit
+-------------------------------------
 
 :func:`~pipelines_metrics.diasource_visit_summaries` queries the three key prompt
 processing topics — ``numDiaSourcesGood``, ``numSsObjects``, and
-``numDirectSsObjects`` — and returns a per-visit summary DataFrame:
+``numDirectSsObjects`` — and returns an aggregated per-visit summary DataFrame:
 
 .. code-block:: python
 

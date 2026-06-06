@@ -16,5 +16,5 @@ For a broad overview of the package, see :ref:`intro`.
     Querying the EFD <howto_efd>
     Log Services <howto_logs>
     ScriptQueue <howto_scriptqueue>
-    Alert Stream and Pipelines Metrics <howto_alerts>
+    Prompt Processing Metrics <howto_alerts>
     Day Obs Utilities <howto_dayobs>
