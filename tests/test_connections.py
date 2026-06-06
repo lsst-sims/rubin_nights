@@ -61,7 +61,7 @@ class TestConnections(unittest.TestCase):
             self.assertTrue(site in API_ENDPOINTS)
         # This call will trigger fetching the influx db credentials.
         # Disable until all fetching is part of repertoire.
-        endpoints = connections.get_clients(site="usdf", auth_token=self.expected_token)
+        endpoints = connections.get_clients()
         # Check expected clients are added to the dictionary
         clients = [
             "consdb",

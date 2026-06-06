@@ -58,14 +58,11 @@ class InfluxQueryClient:
     db_name
         The database to query.
         Default is "efd".
-    api_base
-        The base uri to use for repertoire discovery of influx credentials.
-        This is something like `reference_values.API_ENDPOINTS[site]`,
-        If `connections.get_clients` is used to gather the client connections,
-        this value will be set automatically.
-        It des not necessarily have match the 'site' for the influx db,
-        but should match the auth token.
-        If None, will match the value for 'site'.
+    repertoire_site
+     The site to use for repertoire discovery for influx credentials.
+        Does not necessarily have to be the same as 'site' for the
+        influx db itself, but should match the auth token.
+        If None, will match 'site'.
     auth
         The username and password for authentication to repertoire.
         Note that *repertoire* auth is site-specific, even though
@@ -87,7 +84,7 @@ class InfluxQueryClient:
         self,
         site: str = "usdf",
         db_name: str = "efd",
-        api_base: str | None = None,
+        repertoire_site: str | None = None,
         auth: tuple | None = None,
         id_tag: str | None = None,
         results_as_dataframe: bool = True,
@@ -104,10 +101,10 @@ class InfluxQueryClient:
         # this part is a guess...
         self.influx_db += f"{db_name.lower().replace('lsst.', '')}"
 
-        if api_base is None:
-            self.api_base = API_ENDPOINTS[self.site]
+        if repertoire_site is None:
+            self.repertoire_site = self.site
         else:
-            self.api_base = api_base
+            self.repertoire_site = repertoire_site
 
         self.results_as_dataframe = results_as_dataframe
         if self.results_as_dataframe:
@@ -152,7 +149,9 @@ class InfluxQueryClient:
             The username and password for authentication to repertoire
             (RSP/gaefaelfwr token).
         """
-        creds_service = f"{self.api_base}/repertoire/discovery/influxdb/{self.influx_db}"
+        creds_service = (
+            f"{API_ENDPOINTS[self.repertoire_site]}/repertoire/discovery/influxdb/{self.influx_db}"
+        )
         logger.debug(f"Attempting to fetch credentials from {creds_service}")
         try:
             response = httpx.get(creds_service, auth=auth)

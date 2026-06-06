@@ -177,15 +177,15 @@ def get_clients(
     consdb_query = ConsDbFastAPI(api_base, auth)
     consdb_tap = ConsDbTap(api_base, token=token)
 
-    # The EFD is difficult while repertoire and influx deployments
-    # are in progress. For now: try usdf-efd first, then local version.
-    # This may later apply to all other databases as well.
+    # In general: look for a usdf-<database> first in repertoire
+    # if it doesn't exist, then use local-<database>.
+    # But efd is currently listed in usdfdev-efd when it doesn't exist.
     try:
-        efd_client = InfluxQueryClient("usdf", db_name="efd", api_base=api_base, auth=auth)
+        efd_client = InfluxQueryClient("usdf", db_name="efd", repertoire_site=site, auth=auth)
         efd_client.get_topics()
     except KeyError:
         logger.warning(f"EFD service not available at USDF. Falling back to {site}.")
-        efd_client = InfluxQueryClient(site, db_name="efd", api_base=api_base, auth=auth)
+        efd_client = InfluxQueryClient(site, db_name="efd", repertoire_site=site, auth=auth)
 
     # Connect to the databases which are not in repertoire yet
     obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv")
