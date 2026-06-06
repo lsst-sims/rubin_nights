@@ -15,7 +15,7 @@ __all__ = [
 def diasource_visit_summaries(
     t_start: Time, t_end: Time, influx_client: InfluxQueryClient | None = None
 ) -> pd.DataFrame:
-    """Query lsst.prompt.prod topics to retrieve pipelines metrics outputs.
+    """Query lsst.prompt.prod topics to retrieve diasource metrics outputs.
 
     Parameters
     ----------
@@ -26,7 +26,12 @@ def diasource_visit_summaries(
     influx_client
         InfluxQueryClient with prompt processing metric outputs.
         If None, appropriate connection at USDF will be used.
-        This should be equivalent to the endpoints['sasquatch'] client.
+        This should be equivalent to the endpoints['pp'] client.
+
+    Returns
+    -------
+    alertsum : `pd.DataFrame`
+        DataFrame with visit summaries of diasource metrics.
     """
     if influx_client is None:
         influx_client = InfluxQueryClient("usdf-dev", db_name="lsst.prompt")
