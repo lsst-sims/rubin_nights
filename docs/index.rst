@@ -12,4 +12,5 @@ Query tools useful for survey progress tracking and evaluation.
     :maxdepth: 2
 
     Introduction <intro>
+    How-To Guides <howto>
     API <api>
