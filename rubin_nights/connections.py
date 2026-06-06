@@ -177,18 +177,19 @@ def get_clients(
     consdb_query = ConsDbFastAPI(api_base, auth)
     consdb_tap = ConsDbTap(api_base, token=token)
 
-    # Handle efd carefully -- if the site is summit, we want to
-    # first try to call out to USDF EFD instead
-    efd_client = InfluxQueryClient("usdf", db_name="efd", repertoire_site=site, auth=auth)
-    # But now check if the network is down:
-    if len(efd_client.get_topics()) == 0:
+    # In general: look for a usdf-<database> first in repertoire
+    # if it doesn't exist, then use local-<database>.
+    # But efd is currently listed in usdfdev-efd when it doesn't exist.
+    try:
+        efd_client = InfluxQueryClient("usdf", db_name="efd", repertoire_site=site, auth=auth)
+        efd_client.get_topics()
+    except KeyError:
         logger.warning(f"EFD service not available at USDF. Falling back to {site}.")
         efd_client = InfluxQueryClient(site, db_name="efd", repertoire_site=site, auth=auth)
-    # We'll pass along the auth for the InfluxQueryClients although
-    # they are not in repertoire yet.
-    obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv", auth=auth)
-    pp_client = InfluxQueryClient(site, db_name="lsst.prompt", auth=auth)
-    # Some special clients that are site-agnostic (only one location)
+
+    # Connect to the databases which are not in repertoire yet
+    obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv")
+    pp_client = InfluxQueryClient(site, db_name="lsst.prompt")
     too_client = InfluxQueryClient("summit", db_name="lsst.scimma")
 
     # Be extra helpful with environment variables if using USDF for LFA

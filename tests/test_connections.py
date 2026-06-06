@@ -3,6 +3,9 @@ import unittest
 from pathlib import Path
 
 import rubin_nights.connections as connections
+from rubin_nights.reference_values import API_ENDPOINTS
+
+IN_CI = os.getenv("CI") == "true"
 
 
 class TestConnections(unittest.TestCase):
@@ -51,12 +54,14 @@ class TestConnections(unittest.TestCase):
         if current_env_tokenfile is not None:
             os.environ["ACCESS_TOKEN_FILE"] = current_env_tokenfile
 
+    @unittest.skipIf(IN_CI, "Skipping test in CI environment")
     def test_endpoints(self) -> None:
-        # Check definition of some sites
+        # Check definition of sites
         for site in ["usdf", "usdf-dev", "usdf-int", "summit", "base"]:
-            tokenfile = os.path.join(self.test_dir, self.tokenfile)
-            endpoints = connections.get_clients(tokenfile=tokenfile, site=site)
-            self.assertTrue(isinstance(endpoints["api_base"], str))
+            self.assertTrue(site in API_ENDPOINTS)
+        # This call will trigger fetching the influx db credentials.
+        # Disable until all fetching is part of repertoire.
+        endpoints = connections.get_clients()
         # Check expected clients are added to the dictionary
         clients = [
             "consdb",

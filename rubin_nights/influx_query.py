@@ -59,9 +59,9 @@ class InfluxQueryClient:
         The database to query.
         Default is "efd".
     repertoire_site
-        The site to use for repertoire discovery for influx credentials.
-        Does not necessarily have to be the same as 'site' for the influx db,
-        but should match the auth token.
+     The site to use for repertoire discovery for influx credentials.
+        Does not necessarily have to be the same as 'site' for the
+        influx db itself, but should match the auth token.
         If None, will match 'site'.
     auth
         The username and password for authentication to repertoire.
@@ -120,8 +120,7 @@ class InfluxQueryClient:
         self.last_query = "No query issued yet."
 
         # Fetch the influxdb credentials.
-        # currently repertoire only knows about <site>_efd.
-        if auth is not None and self.db_name == "efd":
+        if auth is not None:
             try:
                 self.url, influx_auth = self._fetch_credentials_repertoire(auth)
             except RepertoireCredsError:
@@ -158,17 +157,16 @@ class InfluxQueryClient:
             response = httpx.get(creds_service, auth=auth)
             response.raise_for_status()
         except Exception as e:
-            if not REPERTOIRE_DEV:
-                logger.error(f"Could not fetch credentials from repertoire at {creds_service}.")
-                logger.info(e)
+            logger.debug(e)
+            logger.error(f"Could not fetch credentials from repertoire at {creds_service}.")
             raise RepertoireCredsError
 
         # Parse the influx db credentials.
         try:
             influx_creds = response.json()
         except Exception as e:
+            logger.debug(e)
             logger.error(f"Could not parse credentials from repertoire at {creds_service}.")
-            logger.info(e)
             raise RepertoireCredsError
 
         auth = (influx_creds["username"], influx_creds["password"])
@@ -179,7 +177,7 @@ class InfluxQueryClient:
 
     def _fetch_credentials_segwarides(self) -> tuple[str, tuple[str, bytes]]:
         "Fetch the credentials via segwarides (to be deprecated)."
-        creds_service = "https://roundtable.lsst.codes/segwarides/creds/usdf_efd"
+        creds_service = f"https://roundtable.lsst.codes/segwarides/creds/{self.site.replace('-', '')}_efd"
         try:
             response = httpx.get(creds_service)
             response.raise_for_status()
