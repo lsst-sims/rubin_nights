@@ -14,7 +14,7 @@ For a broad overview of the package, see :ref:`intro`.
     Getting Connected <howto_connecting>
     Querying the ConsDB <howto_consdb>
     Querying the EFD <howto_efd>
-    Log Services <howto_logs>
+    Querying Summit Logs <howto_logs>
     ScriptQueue <howto_scriptqueue>
     Prompt Processing Metrics <howto_alerts>
     Day Obs Utilities <howto_dayobs>

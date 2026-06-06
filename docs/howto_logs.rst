@@ -2,16 +2,16 @@
 
 .. _howto_logs:
 
-Log Services
-============
+Querying Summit Logs
+====================
 
-Three logging services can be queried through ``rubin_nights``:
+Three summit logging services can be queried through ``rubin_nights``:
 
 * **Night report** — a structured summary of the observing night, one per telescope.
 * **Narrative log** — a running record of observer comments and observatory state changes.
 * **Exposure log** — annotations attached to specific exposures.
 
-All three are accessed via clients returned by :func:`~connections.get_clients`.
+Clients for all three are included in the dictionary returned by :func:`~connections.get_clients`.
 
 Setting a time window
 ---------------------
