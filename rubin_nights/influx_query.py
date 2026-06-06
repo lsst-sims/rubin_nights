@@ -157,16 +157,16 @@ class InfluxQueryClient:
             response = httpx.get(creds_service, auth=auth)
             response.raise_for_status()
         except Exception as e:
+            logger.debug(e)
             logger.error(f"Could not fetch credentials from repertoire at {creds_service}.")
-            logger.info(e)
             raise RepertoireCredsError
 
         # Parse the influx db credentials.
         try:
             influx_creds = response.json()
         except Exception as e:
+            logger.debug(e)
             logger.error(f"Could not parse credentials from repertoire at {creds_service}.")
-            logger.info(e)
             raise RepertoireCredsError
 
         auth = (influx_creds["username"], influx_creds["password"])
@@ -177,7 +177,7 @@ class InfluxQueryClient:
 
     def _fetch_credentials_segwarides(self) -> tuple[str, tuple[str, bytes]]:
         "Fetch the credentials via segwarides (to be deprecated)."
-        creds_service = "https://roundtable.lsst.codes/segwarides/creds/usdf_efd"
+        creds_service = f"https://roundtable.lsst.codes/segwarides/creds/{self.site.replace('-', '')}_efd"
         try:
             response = httpx.get(creds_service)
             response.raise_for_status()
