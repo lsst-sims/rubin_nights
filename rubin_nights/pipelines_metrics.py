@@ -45,7 +45,11 @@ def diasource_visit_summaries(
 
     if len(dia_det) > 0:
         alertsum = dia_det.groupby("visit").agg(
-            {"numAllDiaSources": "sum", "numGoodDiaSources": ("sum", "median"), "detector": "count"}
+            {
+                "numAllDiaSources": ("sum", "median", "std"),
+                "numGoodDiaSources": ("sum", "median"),
+                "detector": "count",
+            }
         )
         alertsum.index = alertsum.index.astype(int)
         cols = [f"{c[0]}_{c[1]}" for c in alertsum.columns]
@@ -57,6 +61,7 @@ def diasource_visit_summaries(
             [],
             columns=[
                 "numAllDiaSources_sum",
+                "numAllDiaSources_median",
                 "numGoodDiaSources_sum",
                 "numGoodDiaSources_median",
                 "nDiaDetectors_count",
@@ -72,13 +77,22 @@ def diasource_visit_summaries(
     logger.info(f"Retrieved {len(sso_det)} records from {topic}.")
 
     if len(sso_det) > 0:
-        ssosum = sso_det.groupby("visit").agg({"NumSsObjectsMetric": "sum", "detector": "count"})
+        ssosum = sso_det.groupby("visit").agg({"NumSsObjectsMetric": ("sum", "median"), "detector": "count"})
         ssosum.index = ssosum.index.astype(int)
+        cols = [f"{c[0]}_{c[1]}" for c in ssosum.columns]
+        ssosum = ssosum.droplevel(level=0, axis=1)
+        ssosum.columns = cols
         ssosum.rename(
-            {"detector": "nSsDetectors_count", "NumSsObjectsMetric": "numSsObjects_sum"}, axis=1, inplace=True
+            {
+                "detector_count": "nSsDetectors_count",
+                "NumSsObjectsMetric_sum": "numSsObjects_sum",
+                "NumSsObjectsMetric_median": "numSsObjects_median",
+            },
+            axis=1,
+            inplace=True,
         )
     else:
-        ssosum = pd.DataFrame([], columns=["numSsObjects_sum", "nSsDetectors_count"])
+        ssosum = pd.DataFrame([], columns=["numSsObjects_sum",  "numSsObjects_median", "nSsDetectors_count"])
         logger.warning(f"No records from {topic}")
 
     # And direct solar system associations (not alerts)
