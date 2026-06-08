@@ -1,0 +1,60 @@
+{
+  "title": "rubin_nights",
+  "description": "Tools for accessing Rubin data relevant for nightly visit investigations.",
+  "upload_type": "software",
+  "license": "GPL-3.0",
+  "creators": [
+    {
+      "name": "Jones, R. Lynne",
+      "affiliation": "Vera C. Rubin Observatory",
+      "orcid": "0000-0001-5916-0031"
+    },
+    {
+      "name": "Yoachim, Peter",
+      "affiliation": "University of Washington",
+      "orcid": "0000-0003-2874-6464"
+    },
+    {
+      "name": "Neilsen, Eric H., Jr.",
+      "affiliation": "Fermi National Accelerator Laboratory",
+      "orcid": "0000-0002-7357-0317"
+    }
+  ],
+    "contributors": [
+      {
+    "name": "Brondel, Brian J.",
+    "affiliation": "Vera C. Rubin Observatory",
+    "orcid": "0009-0005-3510-6248",
+    "type": "ProjectMember"
+  },
+  {
+    "name": "Serene, Alice",
+    "affiliation": "ADACS",
+    "type": "ProjectMember"
+  }
+    {
+      "name": "rubin_nights contributors",
+      "type": "Other"
+    }
+  ],
+  "keywords": [
+    "astronomy",
+    "Rubin Observatory",
+    "LSST",
+    "survey operations",
+      "visit metadata",
+  ],
+    "related_identifiers": [
+	  {
+    "scheme": "url",
+    "identifier": "https://rubin-nights.lsst.io",
+    "relation": "isDocumentedBy",
+    "resource_type": "other"
+  },
+    {
+      "scheme": "url",
+      "identifier": "https://github.com/lsst-sims/rubin_nights",
+      "relation": "isSupplementTo"
+    }
+  ]
+}
