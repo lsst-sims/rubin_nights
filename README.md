@@ -1,4 +1,6 @@
 # rubin_nights
+
+
 Tools for accessing Rubin data relevant for nightly visit investigations.
 
 
@@ -16,3 +18,7 @@ Outside the RSP (such as in your own conda environment), you can pip install sim
 But, you may also be interested in some extra dependencies linked to rubin, such as lsst-resources and rubin-scheduler + rubin-sim. Adding lsst-resources enables you to download snapshots, etc. from the LFA. Adding rubin-scheduler and rubin-sim allow you to add additional information such as predicted zeropoint and predicted slewtimes to the visit + quicklook information gathered from the ConsDb. So then the easiest way forward is:
 
 ```pip install "rubin_nights[rubin] @ git+https://github.com/lsst-sims/rubin_nights.git"```
+
+
+DOI: 
+https://doi.org/10.5281/zenodo.20601250
