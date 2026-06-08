@@ -92,7 +92,7 @@ def diasource_visit_summaries(
             inplace=True,
         )
     else:
-        ssosum = pd.DataFrame([], columns=["numSsObjects_sum",  "numSsObjects_median", "nSsDetectors_count"])
+        ssosum = pd.DataFrame([], columns=["numSsObjects_sum", "numSsObjects_median", "nSsDetectors_count"])
         logger.warning(f"No records from {topic}")
 
     # And direct solar system associations (not alerts)
