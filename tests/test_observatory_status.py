@@ -36,8 +36,8 @@ def _make_shutter_df(timestamps: list) -> pd.DataFrame:
 
 
 def _make_efd_client(open_df: pd.DataFrame, close_df: pd.DataFrame) -> Mock:
-    """Return a mock EFD client whose .query() returns open_df then close_df.
-    """
+    """Return a mock EFD client whose .query()
+    returns open_df then close_df."""
     client = Mock()
     client.query.side_effect = [open_df, close_df]
     return client

@@ -109,7 +109,7 @@ def augment_visits(
     prev_visit_start = np.concatenate([np.array([0]), visits.obs_start_mjd[0:-1]])
     prev_visit_end = np.concatenate([np.array([0]), visits.obs_end_mjd[0:-1]])
     visit_gap = np.concatenate(
-        [np.array([0]), (visits.obs_start_mjd[1:].values - visits.obs_end_mjd[:-1].values) * 24 * 60 * 60]
+        [np.array([0]), (visits.obs_start_mjd[1:].array - visits.obs_end_mjd[:-1].array) * 24 * 60 * 60]
     )  # seconds
 
     coordinates = SkyCoord(visits.s_ra, visits.s_dec, unit=u.degree, frame="icrs")

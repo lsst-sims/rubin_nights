@@ -13,6 +13,7 @@ __all__ = [
     "get_rotator_limits",
     "get_tma_limits",
     "get_mounted_bandpasses",
+    "get_obs_status_messages",
     "_obs_status_state_changes",
     "get_observatory_state_times",
     "_count_contribution",
@@ -434,7 +435,7 @@ def get_mounted_bandpasses(t_start: Time, t_end: Time, efd_client: InfluxQueryCl
     return bands
 
 
-def _return_obs_status_messages(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
+def get_obs_status_messages(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
     """Query observatory status for Simonyi MTScheduler only.
 
     Parameters
@@ -649,7 +650,7 @@ def get_observatory_state_times(t_start: Time, t_end: Time, efd_client: InfluxQu
         IDLE, UNKNOWN, FAULT and OPERATIONAL periods,
         limited by -12 to -12 twilight.
     """
-    obs_status_messages = _return_obs_status_messages(t_start, t_end, efd_client)
+    obs_status_messages = get_obs_status_messages(t_start, t_end, efd_client)
 
     weather, weather_edges = _obs_status_state_changes(obs_status_messages, "WEATHER")
     weather["type"] = "WEATHER"

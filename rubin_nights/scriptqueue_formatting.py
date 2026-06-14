@@ -134,7 +134,7 @@ def format_html(
         efd_and_messages[cols]
         .style.apply(highlight_salindex, axis=1)
         .set_table_styles([dict(selector="th", props=[("text-align", "left")])])
-        .set_properties(**{"text-align": "left"})
+        .set_properties(**{"text-align": "left"})  # type: ignore[arg-type]
     )
 
     # Render with HTML

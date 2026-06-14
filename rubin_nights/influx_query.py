@@ -59,7 +59,7 @@ class InfluxQueryClient:
         The database to query.
         Default is "efd".
     repertoire_site
-     The site to use for repertoire discovery for influx credentials.
+        The site to use for repertoire discovery for influx credentials.
         Does not necessarily have to be the same as 'site' for the
         influx db itself, but should match the auth token.
         If None, will match 'site'.
@@ -73,9 +73,6 @@ class InfluxQueryClient:
         Add the service name or user name as a comment to the query.
         This aids in tracking query sources in EFD logs.
         If None, will be set to username.
-    results_as_dataframe
-        If True, convert query results into a pandas DataFrame.
-        If False, results are returned as a list of dictionaries.
     query_timeout
         Time (in seconds) to wait for query to return.
     """
@@ -87,7 +84,6 @@ class InfluxQueryClient:
         repertoire_site: str | None = None,
         auth: tuple | None = None,
         id_tag: str | None = None,
-        results_as_dataframe: bool = True,
         query_timeout: float = 5 * 60,
     ) -> None:
 
@@ -106,11 +102,7 @@ class InfluxQueryClient:
         else:
             self.repertoire_site = repertoire_site
 
-        self.results_as_dataframe = results_as_dataframe
-        if self.results_as_dataframe:
-            self.null_result = pd.DataFrame([])
-        else:
-            self.null_result = []
+        self.null_result = pd.DataFrame([])
 
         if id_tag is None:
             id_tag = getpass.getuser()
@@ -211,19 +203,23 @@ class InfluxQueryClient:
         if "series" not in statement:
             # zero results
             return pd.DataFrame([])
-        # One InfluxDB measurement queried at a time
+        # One InfluxDB measurement/topic queried at a time
         series = statement["series"][0]
         result = pd.DataFrame(series.get("values", []), columns=series["columns"])
         if "time" not in result.columns:
             return result
-        result = result.set_index(pd.to_datetime(result["time"], format="ISO8601")).drop("time", axis=1)
-        if result.index.tzinfo is None:
-            result.index = result.index.tz_localize("UTC")
-        if "tags" in series:
-            for k, v in series["tags"].items():
-                result[k] = v
-        if "name" in series:
-            result.name = series["name"]
+
+        # Set time index.
+        time_index = pd.DatetimeIndex(pd.to_datetime(result["time"], format="ISO8601"))
+        if time_index.tzinfo is None:
+            time_index = time_index.tz_localize("UTC")
+        result = result.set_index(time_index).drop("time", axis=1)
+        # Fill other data.
+        # if "tags" in series:
+        #     for k, v in series["tags"].items():
+        #         result[k] = v
+        # if "name" in series:
+        #     result["name"] = series["name"]
         return result
 
     @staticmethod
@@ -327,7 +323,7 @@ class InfluxQueryClient:
 
         return query
 
-    def query(self, query: str) -> dict | pd.DataFrame:
+    def query(self, query: str) -> pd.DataFrame:
         """Send and receive results from the InfluxDB API,
         with a synchronous query.
 
@@ -338,11 +334,20 @@ class InfluxQueryClient:
 
         Returns
         -------
-        result : `dict` or `pd.DataFrame`
+        result : `pd.DataFrame`
         """
+        # If requested topic is not in known topics,
+        # the query can arrive here as "".
+        if query is None or len(query) == 0:
+            return self.null_result
         # Add an identifier string to the query
-        params = {"db": self.db_name, "q": query + self.query_tag}
-        self.last_query = query + self.query_tag
+        if "show" in query:
+            # show queries only work with the comment first.
+            query = self.query_tag + query
+        else:
+            query = query + self.query_tag
+        params = {"db": self.db_name, "q": query}
+        self.last_query = query
 
         try:
             response = self.httpx_client.get(
@@ -356,18 +361,13 @@ class InfluxQueryClient:
             response = None
 
         if response:
-            if self.results_as_dataframe:
-                result = self._to_dataframe(response.json())
-            else:
-                result = response.json()
+            result = self._to_dataframe(response.json())
         else:
-            result = []
-            if self.results_as_dataframe:
-                result = pd.DataFrame(result)
+            result = self.null_result
 
         return result
 
-    async def async_query(self, query: str) -> dict | pd.DataFrame:
+    async def async_query(self, query: str) -> pd.DataFrame:
         """Send and receive results from the InfluxDB API,
         with an asynchronous query.
 
@@ -378,11 +378,16 @@ class InfluxQueryClient:
 
         Returns
         -------
-        result : `dict` or `pd.DataFrame`
+        result : `pd.DataFrame`
         """
         # Add an identifier string to the query
-        params = {"db": self.db_name, "q": query + self.query_tag}
-        self.last_query = query + self.query_tag
+        if "show" in query:
+            # show queries only work with the comment first.
+            query = self.query_tag + query
+        else:
+            query = query + self.query_tag
+        params = {"db": self.db_name, "q": query}
+        self.last_query = query
 
         try:
             response = await self.async_client.get(
@@ -396,14 +401,9 @@ class InfluxQueryClient:
             response = None
 
         if response:
-            if self.results_as_dataframe:
-                result = self._to_dataframe(response.json())
-            else:
-                result = response.json()
+            result = self._to_dataframe(response.json())
         else:
-            result = []
-            if self.results_as_dataframe:
-                result = pd.DataFrame(result)
+            result = self.null_result
 
         return result
 
@@ -426,7 +426,7 @@ class InfluxQueryClient:
         Returns
         -------
         fields : `pd.DataFrame`
-            DataFrame with fieldKey / fieldType columns.
+            fieldKey / fieldType values.
         """
         query = f'show field keys from "{measurement}"'
         return self.query(query)
@@ -442,7 +442,7 @@ class InfluxQueryClient:
         Returns
         -------
         fields : `pd.DataFrame`
-            DataFrame with fieldKey / fieldType columns.
+            fieldKey / fieldType values.
         """
         query = f'show field keys from "{measurement}"'
         return await self.async_query(query)
@@ -477,7 +477,7 @@ class InfluxQueryClient:
         """
         if topic_name not in self.get_topics():
             logger.error(f"{topic_name} not in {self.db_name} topics.")
-            return self.null_result
+            return ""
         if index:
             filters = [("salIndex", str(index))]
         else:
@@ -494,7 +494,7 @@ class InfluxQueryClient:
         t_start: Time,
         t_end: Time,
         index: int | None = None,
-    ) -> pd.DataFrame | list[dict]:
+    ) -> pd.DataFrame:
         """Sync query to return data from `topic_name`
         between `t_start` and `t_end`.
 
@@ -512,7 +512,7 @@ class InfluxQueryClient:
 
         Returns
         -------
-        query_results: `pd.DataFrame` or `list` [ `dict` ]
+        query_results: `pd.DataFrame`
             The result of the query.
         """
         query = self._time_series_query(
@@ -527,7 +527,7 @@ class InfluxQueryClient:
         t_start: Time,
         t_end: Time,
         index: int | None = None,
-    ) -> pd.DataFrame | list[dict]:
+    ) -> pd.DataFrame:
         """Async query to return data from `topic_name`
         between `t_start` and `t_end`.
 
@@ -545,7 +545,7 @@ class InfluxQueryClient:
 
         Returns
         -------
-        query_results: `pd.DataFrame` or `list` [ `dict` ]
+        query_results: `pd.DataFrame`
             The result of the query.
         """
         query = self._time_series_query(
@@ -583,7 +583,7 @@ class InfluxQueryClient:
         """
         if topic_name not in self.get_topics():
             logger.error(f"{topic_name} not in {self.db_name} topics.")
-            return self.null_result
+            return ""
         if index:
             filters = [("salIndex", str(index))]
         else:
@@ -600,7 +600,7 @@ class InfluxQueryClient:
         num: int,
         time_cut: Time = None,
         index: int | None = None,
-    ) -> pd.DataFrame | list[dict]:
+    ) -> pd.DataFrame:
         """Sync query to return `num` records from `topic_name`.
 
         Parameters
@@ -617,7 +617,7 @@ class InfluxQueryClient:
 
         Returns
         -------
-        query_results: `pd.DataFrame` or `list` [ `dict` ]
+        query_results: `pd.DataFrame`
             The result of the query.
         """
         query = self._top_n_query(
@@ -632,7 +632,7 @@ class InfluxQueryClient:
         num: int,
         time_cut: Time = None,
         index: int | None = None,
-    ) -> pd.DataFrame | list[dict]:
+    ) -> pd.DataFrame:
         """Async query to return `num` records from `topic_name`.
 
         Parameters
@@ -649,7 +649,7 @@ class InfluxQueryClient:
 
         Returns
         -------
-        query_results: `pd.DataFrame` or `list` [ `dict` ]
+        query_results: `pd.DataFrame`
             The result of the query.
         """
         query = self._top_n_query(

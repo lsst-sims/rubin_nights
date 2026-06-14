@@ -126,10 +126,10 @@ def add_rubin_sim_cols(
         pixel_scale: float | npt.NDArray
         if pixel_scale_col in visits.columns:
             pixel_scale = np.where(
-                np.isnan(visits[pixel_scale_col].values), PLATESCALE, visits[pixel_scale_col].values
+                np.isnan(visits[pixel_scale_col].array), PLATESCALE, visits[pixel_scale_col].array
             )
             # Remove nonsense values
-            pixel_scale = np.where(visits[pixel_scale_col].values > PLATESCALE * 2.5, PLATESCALE, pixel_scale)
+            pixel_scale = np.where(visits[pixel_scale_col].array > PLATESCALE * 2.5, PLATESCALE, pixel_scale)
         else:
             pixel_scale = PLATESCALE
         visits["pixel_scale_est"] = pixel_scale
@@ -137,24 +137,26 @@ def add_rubin_sim_cols(
     def calc_predicted_zeropoints(x: pd.Series) -> pd.Series:
         if x.exp_time == 0 or np.isnan(x.exp_time) or x.band not in ["u", "g", "r", "i", "z", "y"]:
             # Bail if zero or nan exposure time or not in bandpass dictionary.
-            x.zero_point_1s = np.nan
-            x.zero_point_1s_pred = np.nan
-            x.sky_bg_mag = np.nan
+            x["zero_point_1s"] = np.nan
+            x["zero_point_1s_pred"] = np.nan
+            x["sky_bg_mag"] = np.nan
             return x
         # Calculate 1-s 1-e- zeropoints (measured and predicted)
-        x.zero_point_1s = x[zero_point_col] - 2.5 * np.log10(x.exp_time)
-        x.zero_point_1s_pred = predicted_zeropoint(x.band, x.airmass, 1) + predicted_zeropoint_offsets[x.band]
+        x["zero_point_1s"] = x[zero_point_col] - 2.5 * np.log10(x.exp_time)
+        x["zero_point_1s_pred"] = (
+            predicted_zeropoint(x.band, x.airmass, 1) + predicted_zeropoint_offsets[x.band]
+        )
         # zp with hardware only would be the expected value for predicting
         # sky counts
         #  zp_sky = predicted_zeropoint_hardware(x.band, x.shut_time) +
         #    predicted_zeropoint_offsets[x.band]
         # but when converting from image measurements, probably
         # should use measured zeropoint (including exposure time)
-        x.sky_bg_mag = -2.5 * np.log10(x[sky_col] / x.pixel_scale_est**2) + x[zero_point_col]
+        x["sky_bg_mag"] = -2.5 * np.log10(x[sky_col] / x.pixel_scale_est**2) + x[zero_point_col]
         return x
 
     visits = visits.apply(calc_predicted_zeropoints, axis=1)
-    visits.clouds = visits.zero_point_1s_pred - visits.zero_point_1s
+    visits["clouds"] = visits.zero_point_1s_pred - visits.zero_point_1s
     if psf_area_col in visits.columns:
         # psf_area seems like a better choice
         neff = visits[psf_area_col]
@@ -168,7 +170,7 @@ def add_rubin_sim_cols(
         # We could use the measured zeropoint directly
         # (then in theory should match stats_mag_lim)
         # Or we could use the 'corrected' zeropoint + exposure time
-        visits.cat_m5 = -2.5 * np.log10(counts_5sigma) + visits[zero_point_col]
+        visits["cat_m5"] = -2.5 * np.log10(counts_5sigma) + visits[zero_point_col]
 
     return visits
 
