@@ -5,7 +5,7 @@ import pandas as pd
 from astropy.time import Time
 
 from .dayobs_utils import day_obs_list, day_obs_sunset_sunrise, day_obs_sunset_sunrise_df, day_obs_to_time
-from .influx_query import InfluxQueryClient, day_obs_from_efd_index
+from .influx_query import InfluxQueryClient, day_obs_from_efd_index_array
 
 __all__ = [
     "get_dome_open_close",
@@ -133,9 +133,9 @@ def get_dome_open_close(
 
     else:
         # Add day_obs
-        dome_shutter_open["day_obs"] = dome_shutter_open.apply(day_obs_from_efd_index, axis=1)
+        dome_shutter_open["day_obs"] = day_obs_from_efd_index_array(dome_shutter_open.index.to_series())
         if len(dome_shutter_close) > 0:
-            dome_shutter_close["day_obs"] = dome_shutter_close.apply(day_obs_from_efd_index, axis=1)
+            dome_shutter_close["day_obs"] = day_obs_from_efd_index_array(dome_shutter_close.index.to_series())
 
         # Find open/close times in each day_obs, including no-event day_obs
         dome_open = []
@@ -459,7 +459,7 @@ def get_obs_status_messages(t_start: Time, t_end: Time, efd_client: InfluxQueryC
     obs_status_messages: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end, index=1)
     if len(obs_status_messages) == 0:
         obs_status_messages = pd.DataFrame([], columns=fields)
-    obs_status_messages["day_obs"] = obs_status_messages.apply(day_obs_from_efd_index, axis=1)
+    obs_status_messages["day_obs"] = day_obs_from_efd_index_array(obs_status_messages.index.to_series())
     # WEATHER or DOWNTIME alone should match with IDLE
     idx = obs_status_messages.query("statusLabels == 'WEATHER'").index
     obs_status_messages.loc[idx, "statusLabels"] = "IDLE | WEATHER"

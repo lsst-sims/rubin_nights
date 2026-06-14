@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "InfluxQueryClient",
     "day_obs_from_efd_index",
+    "day_obs_from_efd_index_array",
     "convert_time_to_tz_datetime",
 ]
 
@@ -27,9 +28,26 @@ REPERTOIRE_DEV = True
 
 
 def day_obs_from_efd_index(x: pd.Series) -> int:
-    """Use with pandas apply(efd_values, axis=1) to get dayobs."""
+    """Use with pandas apply(efd_values, axis=1) to get dayobs.
+
+    To be deprecated:
+    Use day_obs_from_efd_index_series for faster conversion and safety
+    in case of zero-length dataframes.
+    """
     dayobs_time = Time(np.floor(Time(x.name, scale="utc").tai.mjd - 0.5), format="mjd", scale="tai")
     return int(dayobs_time.isot.split("T")[0].replace("-", ""))
+
+
+def day_obs_from_efd_index_array(utc_time_format: pd.Series | np.ndarray) -> pd.Series | np.ndarray:
+    """Convert an array or series of astropy-readable times to dayobs ints."""
+    if len(utc_time_format) == 0:
+        return np.array([], dtype=int)
+    # convert to the MJD DayObs time (Noon UTC)
+    dayobs_mjd = np.floor(Time(utc_time_format, scale="utc").tai.mjd - 0.5)
+    dayobs_times = Time(dayobs_mjd, format="mjd", scale="tai")
+    # Truncate each isot string to "YYYY-MM-DD" then strip hyphens
+    dayobs = np.char.replace(dayobs_times.isot.astype("U10"), "-", "").astype(int)
+    return dayobs
 
 
 def convert_time_to_tz_datetime(time: Time) -> datetime:
@@ -215,11 +233,11 @@ class InfluxQueryClient:
             time_index = time_index.tz_localize("UTC")
         result = result.set_index(time_index).drop("time", axis=1)
         # Fill other data.
-        # if "tags" in series:
-        #     for k, v in series["tags"].items():
-        #         result[k] = v
-        # if "name" in series:
-        #     result["name"] = series["name"]
+        if "tags" in series:
+            for k, v in series["tags"].items():
+                result[k] = v
+        if "name" in series:
+            result.attrs["name"] = series["name"]
         return result
 
     @staticmethod
