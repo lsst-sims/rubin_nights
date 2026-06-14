@@ -22,6 +22,39 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
+def _apply_night_hours(x: pd.Series) -> pd.Series:
+    """Add the sunrise/sunset and overlap with dome open hours.
+    A pandas apply method for the dome_open_close function.
+    """
+    sunset, sunrise = day_obs_sunset_sunrise(x["day_obs"], sun_alt=-12)
+    x["sunset12"] = sunset.utc.datetime
+    x["sunrise12"] = sunrise.utc.datetime
+    x["night_hours"] = (x["sunrise12"] - x["sunset12"]) / pd.Timedelta(1, "h")
+    # Don't count open time before sunset.
+    if pd.isna(x["open_time"]):
+        # Put in a value that will result in 0 open time.
+        start = x["sunrise12"]
+    else:
+        # Don't count open time before sunrise.
+        start = np.max([x["open_time"], x["sunset12"]])
+    if pd.isna(x["close_time"]):
+        # Put in sunrise if we do not yet have a close time.
+        end = x["sunrise12"]
+    else:
+        # Don't count open time beyond sunrise.
+        end = np.min([x["close_time"], x["sunrise12"]])
+
+    # If the dome opened and closed during the daytime, disregard.
+    # Open and close in the afternoon.
+    if x["close_time"] < x["sunset12"]:
+        end = start
+    # Open and close in the morning.
+    if x["open_time"] > x["sunrise12"]:
+        end = start
+    x["open_hours"] = (end - start) / pd.Timedelta(1, "h")
+    return x
+
+
 def get_dome_open_close(
     t_start: Time, t_end: Time, efd_client: InfluxQueryClient, with_sunset_sunrise: bool = True
 ) -> pd.DataFrame:
@@ -54,6 +87,9 @@ def get_dome_open_close(
     However, a dome open event without a later close will be returned
     as simply a dome open.
     """
+    if t_end <= t_start:
+        logger.warning(f"t_end {t_end.isot} should be larger than t_start {t_start.isot}")
+        return pd.DataFrame([])
     # Get dome open/close information.
     # this should likely come from lsst.sal.MTDome.logevent_shutterMotion
     # instead, once logevent_shutterMotion becomes reliable.
@@ -81,120 +117,118 @@ def get_dome_open_close(
     )
     dome_shutter_close: pd.DataFrame = efd_client.query(close_query)
 
+    # If there were no opening events during the timespan:
     if len(dome_shutter_open) == 0:
-        # Make and return an empty data frame with the expected columns.
-        dome_shutter = pd.DataFrame([], columns=["day_obs", "open_time", "close_time", "open_hours"])
-        return dome_shutter
+        # Add 0 open/close times for each day_obs.
+        dome_open = [
+            [
+                pd.NaT,
+                pd.NaT,
+                0,
+                day_obs,
+            ]
+            for day_obs in day_obs_list(t_start, t_end)
+        ]
 
-    # Add day_obs
-    dome_shutter_open["day_obs"] = dome_shutter_open.apply(day_obs_from_efd_index, axis=1)
-    if len(dome_shutter_close) > 0:
-        dome_shutter_close["day_obs"] = dome_shutter_close.apply(day_obs_from_efd_index, axis=1)
+    else:
+        # Add day_obs
+        dome_shutter_open["day_obs"] = dome_shutter_open.apply(day_obs_from_efd_index, axis=1)
+        if len(dome_shutter_close) > 0:
+            dome_shutter_close["day_obs"] = dome_shutter_close.apply(day_obs_from_efd_index, axis=1)
 
-    # Find open/close times in each day_obs, including no-event day_obs
-    dome_open = []
-    for day_obs in day_obs_list(t_start, t_end):
-        # dome open/close events
-        opening = dome_shutter_open.query("day_obs == @day_obs")
-        open_start = None
-        if len(opening) > 0:
-            # There are many 'opening' lines in dome_shutter_open;
-            # pick out the ones which are the first in each 5 minute interval
-            # This should separate dome opening events (which are <5 minutes).
-            gaps = np.where((np.diff(opening.index) / pd.Timedelta(1, "s")) > 5 * 60)[0]
-            # And add 1 because np.diff gives you the previous index.
-            gaps += 1
-            # And add an index for the very first dome_open index,
-            # which doesn't have a previous 5 minute interval (so misses diff).
-            gaps = np.concatenate([np.array([0]), gaps])
-            open_start = Time(opening.iloc[gaps].index.values, scale="utc").utc.datetime
+        # Find open/close times in each day_obs, including no-event day_obs
+        dome_open = []
+        for day_obs in day_obs_list(t_start, t_end):
+            # dome open/close events
+            opening = dome_shutter_open.query("day_obs == @day_obs")
+            open_start = None
+            if len(opening) > 0:
+                # There are many 'opening' lines in dome_shutter_open;
+                # Find the first in each 5 minute interval.
+                gaps = np.where((np.diff(opening.index) / pd.Timedelta(1, "s")) > 5 * 60)[0]
+                # And add 1 because np.diff gives you the previous index.
+                gaps += 1
+                # And add an index for the very first dome_open index,
+                # which doesn't have a previous 5 minute interval
+                # (so misses diff).
+                gaps = np.concatenate([np.array([0]), gaps])
+                open_start = Time(opening.iloc[gaps].index.values, scale="utc").utc.datetime
 
-        closing = dome_shutter_close.query("day_obs == @day_obs")
-        close_start = None
-        if len(closing) > 0:
-            # Pick out the dome closing events that are first in each
-            # 3 minute interval (separate dome closing events).
-            gaps = np.where((np.diff(closing.index) / pd.Timedelta(1, "s")) > 3 * 60)[0]
-            gaps += 1
-            gaps = np.concatenate([np.array([0]), gaps])
-            close_start = Time(closing.iloc[gaps].index.values, scale="utc").utc.datetime
+            if "day_obs" in dome_shutter_close.columns:
+                closing = dome_shutter_close.query("day_obs == @day_obs")
+            else:
+                closing = pd.DataFrame([])
+            close_start = None
+            if len(closing) > 0:
+                # Pick out the dome closing events that are first in each
+                # 3 minute interval (separate dome closing events).
+                gaps = np.where((np.diff(closing.index) / pd.Timedelta(1, "s")) > 3 * 60)[0]
+                gaps += 1
+                gaps = np.concatenate([np.array([0]), gaps])
+                close_start = Time(closing.iloc[gaps].index.values, scale="utc").utc.datetime
 
-        # Sometimes telemetry is weird .. can't just zip these.
-        # Look through open and close and match them up.
-        if open_start is not None:
-            for i in range(len(open_start)):
-                open_time = open_start[i]
-                if close_start is not None:
-                    # Find the possible close times for this open_time.
-                    close_time = np.where(close_start >= open_time)[0]
-                    # If there are any - pick the first one.
-                    if len(close_time) > 0:
-                        close_time = close_start[close_time[0]]
+            # Sometimes telemetry is unexpected, so don't just zip.
+            # Look through open and close and match them up.
+            if open_start is not None:
+                for i in range(len(open_start)):
+                    open_time = open_start[i]
+                    if close_start is not None:
+                        # Find the possible close times for this open_time.
+                        close_idx = np.where(close_start >= open_time)[0]
+                        # If there are any - pick the first one.
+                        if len(close_idx) > 0:
+                            close_time = close_start[close_idx[0]]
+                        else:
+                            close_time = pd.NaT
                     else:
+                        # No close_start times at all
                         close_time = pd.NaT
-                else:
-                    # No close_start times at all
-                    close_time = pd.NaT
-                if not pd.isna(close_time):
-                    open_hours = (close_time - open_time) / np.timedelta64(3600, "s")
-                else:
-                    open_hours = np.nan
+                    if pd.isna(close_time):
+                        open_hours = np.nan
+                    else:
+                        open_hours = (close_time - open_time) / np.timedelta64(3600, "s")
 
-                dome_open.append([day_obs, open_time, close_time, open_hours])
-        else:
-            # No open start times at all.
-            # (but check that we're not looking at a day in the future).
-            if Time.now() > day_obs_to_time(day_obs):
-                dome_open.append([day_obs, pd.NaT, pd.NaT, 0])
+                    dome_open.append([open_time, close_time, open_hours, day_obs])
+            else:
+                # No open start times at all - append an empty line
+                # (but check that we're not looking at a day in the future).
+                if Time.now() > day_obs_to_time(day_obs):
+                    dome_open.append(
+                        [
+                            pd.NaT,
+                            pd.NaT,
+                            0,
+                            day_obs,
+                        ]
+                    )
 
-    dome_open = pd.DataFrame(dome_open, columns=["day_obs", "open_time", "close_time", "dome_hours"])
+    dome_open_df = pd.DataFrame(
+        dome_open,
+        columns=[
+            "open_time",
+            "close_time",
+            "dome_hours",
+            "day_obs",
+        ],
+    )
 
     if with_sunset_sunrise:
         # Add sunrise/sunset/night open hours information to the dataframe.
         cols = ["sunset12", "sunrise12", "night_hours", "open_hours"]
         night_info = pd.DataFrame(
             [
-                np.array([pd.Timestamp(0)] * len(dome_open)),
-                np.array([pd.Timestamp(0)] * len(dome_open)),
-                np.zeros(len(dome_open)),
-                np.zeros(len(dome_open)),
+                np.array([pd.Timestamp(0)] * len(dome_open_df)),
+                np.array([pd.Timestamp(0)] * len(dome_open_df)),
+                np.zeros(len(dome_open_df)),
+                np.zeros(len(dome_open_df)),
             ],
             index=cols,
-            columns=dome_open.index.copy(),
+            columns=dome_open_df.index.copy(),
         ).T
-        dome_open = dome_open.join(night_info)
+        dome_open_df = dome_open_df.join(night_info)
+        dome_open_df = dome_open_df.apply(_apply_night_hours, axis=1)
 
-        def apply_night_hours(x: pd.Series) -> pd.Series:
-            sunset, sunrise = day_obs_sunset_sunrise(x.day_obs, sun_alt=-12)
-            x.sunset12 = sunset.utc.datetime
-            x.sunrise12 = sunrise.utc.datetime
-            x.night_hours = (x.sunrise12 - x.sunset12) / pd.Timedelta(1, "h")
-            # Don't count open time before sunset.
-            if not pd.isna(x.open_time):
-                start = np.max([x.open_time, x.sunset12])
-            else:
-                # Put in a value that will result in 0 open time
-                start = x.sunrise12
-            if not pd.isna(x.close_time):
-                # Don't count open time beyond sunrise.
-                end = np.min([x.close_time, x.sunrise12])
-            else:
-                # If we have not closed the dome yet .. choose sunrise?
-                end = x.sunrise12
-            # If the dome opened and closed during the daytime, disregard.
-            # Open and close in the afternoon.
-            if x.close_time < x.sunset12:
-                end = start
-            # Open and close in the morning.
-            if x.open_time > x.sunrise12:
-                end = start
-            x.open_hours = (end - start) / pd.Timedelta(1, "h")
-            return x
-
-        # dome_open['night_hours'] = dome_open.apply(apply_night_hours, axis=1)
-        dome_open = dome_open.apply(apply_night_hours, axis=1)
-
-    return dome_open
+    return dome_open_df
 
 
 def mtm1m3_slewflag_times(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
@@ -260,7 +294,7 @@ def mtm1m3_slewflag_times(t_start: Time, t_end: Time, efd_client: InfluxQueryCli
         suffixes=["_start", "_end"],
     )
     mt_slew.rename({"time_end": "mtm1m3_clear", "time_start": "mtm1m3_set"}, axis=1, inplace=True)
-    mt_slew["mt_slew_time"] = (mt_slew["mtm1m3_clear"] - mt_slew["mtm1m3_set"]) / np.timedelta64(1, "s")
+    mt_slew["mt_slew_time"] = (mt_slew["mtm1m3_clear"] - mt_slew["mtm1m3_set"]) / pd.Timedelta(1, "s")  # type: ignore[operator]
 
     missing = set(slew_start.scriptSalIndex.values).symmetric_difference(set(slew_end.scriptSalIndex.values))
     logging.debug(
@@ -389,7 +423,7 @@ def get_mounted_bandpasses(t_start: Time, t_end: Time, efd_client: InfluxQueryCl
     bands.sort_index(inplace=True)
 
     # Reformat string of bandpass names to list, dropping "none"
-    def parse_available_bands(x: pd.Series) -> pd.Series:
+    def parse_available_bands(x: pd.Series) -> list[str]:
         return [
             f'"{band.strip()}"'
             for band in x.available_bands.split(",")
@@ -682,7 +716,7 @@ def count_observatory_states(
         _count_contribution, obs_status_periods=obs_status_periods, axis=1
     )
     # Round contributions < .2 sec down to 0.
-    contributed_hours[np.where(contributed_hours < 0.2 / 60 / 60)] = 0
+    contributed_hours[contributed_hours < 0.2 / 60 / 60] = 0
     obs_status_periods["contributed_hours"] = contributed_hours
 
     # Create day_obs summaries.

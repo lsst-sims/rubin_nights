@@ -108,11 +108,12 @@ def mjd_to_dayobs(mjd: float) -> int:
 def day_obs_list(t_start: Time, t_end: Time) -> list[int]:
     """Return a list of all day_obs values between t_start and t_end."""
     one_day = TimeDelta(1, format="jd")
-    # convert to time of 'day_obs' start
-    time_day_obs_start = day_obs_to_time(time_to_day_obs(t_start))
-    time_day_obs_end = day_obs_to_time(time_to_day_obs(t_end))
-    days = time_day_obs_start + one_day * np.arange(0, (time_day_obs_end - time_day_obs_start).jd + 0.5)
-    return [day_obs_str_to_int(time_to_day_obs(d)) for d in days]
+    # Exclude last dayobs if t_end was <day>12:00:00 (at boundary)
+    days = t_start + one_day * np.arange(0, (t_end - t_start).jd)
+    day_obs_list = [day_obs_str_to_int(time_to_day_obs(d)) for d in days]
+    if len(day_obs_list) == 0:
+        day_obs_list = [day_obs_str_to_int(time_to_day_obs(t_start))]
+    return day_obs_list
 
 
 @functools.cache
@@ -161,7 +162,12 @@ def day_obs_sunset_sunrise(day_obs: str | int, sun_alt: float = -12) -> tuple[Ti
 
 
 def day_obs_sunset_sunrise_df(day_obs_min: int, day_obs_max: int) -> pd.DataFrame:
-    days = day_obs_list(day_obs_to_time(day_obs_min), day_obs_to_time(day_obs_max))
+    """Return a DataFrame of day_obs, sunset, sunrise and night_hours
+    for all day_obs from min to max, including max.
+    """
+    days = day_obs_list(
+        day_obs_to_time(day_obs_min), day_obs_to_time(day_obs_max) + TimeDelta(1, format="jd")
+    )
     df_rows = []
     for day in days:
         sunset, sunrise = day_obs_sunset_sunrise(day, sun_alt=-12)
