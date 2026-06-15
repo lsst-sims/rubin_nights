@@ -23,7 +23,7 @@ def query_consdb_to_opsim(tokenfile: str | None = None, site: str | None = None)
         f"and v.day_obs >= 20250415 "
     )
 
-    consdb_visits = endpoints["consdb"].query(query)
+    consdb_visits: pd.DataFrame = endpoints["consdb"].query(query)
     consdb_visits = endpoints["consdb"].augment_visits(consdb_visits)
     opsim = rsim.consdb_to_opsim(consdb_visits)
     return opsim
