@@ -33,10 +33,11 @@ def _apply_night_hours(x: pd.Series) -> pd.Series:
     x["night_hours"] = (x["sunrise12"] - x["sunset12"]) / pd.Timedelta(1, "h")
     # Don't count open time before sunset.
     if pd.isna(x["open_time"]):
+        # is "open_time" is NaT, then "close_time" will be as well.
         # Put in a value that will result in 0 open time.
         start = x["sunrise12"]
     else:
-        # Don't count open time before sunrise.
+        # Don't count open time before sunset.
         start = np.max([x["open_time"], x["sunset12"]])
     if pd.isna(x["close_time"]):
         # Put in sunrise if we do not yet have a close time.
