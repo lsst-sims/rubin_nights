@@ -6,7 +6,7 @@ import numpy.typing as npt
 import pandas as pd
 from astropy.time import Time
 
-from .influx_query import InfluxQueryClient
+from .influx_query import InfluxQueryClient, convert_time_to_tz_datetime
 from .observatory_status import get_tma_limits
 from .reference_values import PLATESCALE, SIGMA_TO_FWHM
 
@@ -183,7 +183,7 @@ def add_rubin_scheduler_cols(
     almanac_values = almanac.get_sun_moon_positions(visits.exp_midpt_mjd.array)
     moon_RA = np.degrees(almanac_values["moon_RA"])
     moon_dec = np.degrees(almanac_values["moon_dec"])
-    moon_distance = angular_separation(moon_RA, moon_dec, visits.s_ra.array, visits.s_dec.array)
+    moon_distance = angular_separation(moon_RA, moon_dec, visits.s_ra.to_numpy(), visits.s_dec.to_numpy())
     moon_illum = almanac.get_sun_moon_positions(visits.exp_midpt_mjd.array)["moon_phase"]
 
     new_df = pd.DataFrame(
@@ -238,7 +238,8 @@ def add_model_slew_times(
     model_settle
         The amount of settle time to add to the model_slew.
         This should make the model_slew time match the TMAevent time.
-        Might vary over time.
+        Might vary over time. In general this is 1s -- however
+        the actual visit gap is longer than just TMA.
     dome_crawl
         Enable dome crawl when calculating slew times, if True.
     slew_while_changing_filter
@@ -272,6 +273,7 @@ def add_model_slew_times(
     kinematic_model_ideal = KinemModel(mjd0=t_start.mjd - 0.1)
     # When evaluating slew times between actual images, need to
     # remove delay for closed-loop (the image itself represents the delay)
+    # also .. we're not adding this delay on-sky.
     kinematic_model_ideal.setup_optics(cl_delay=[0, 0])
     kinematic_model_ideal.setup_telescope(
         **tma_movement(ideal_tma),
@@ -280,7 +282,7 @@ def add_model_slew_times(
         azimuth_minpos=-262,
         azimuth_maxpos=262,
     )
-    kinematic_model_ideal.setup_camera(**rotator_movement(100), readtime=readtime)
+    kinematic_model_ideal.setup_camera(**rotator_movement(100), band_changetime=120, readtime=readtime)
     kinematic_model_ideal.mount_bands(["u", "g", "r", "i", "z", "y"])
 
     # Slower kinematic model to modify with actual telescope parameters
@@ -289,13 +291,18 @@ def add_model_slew_times(
     # When evaluating slew times between actual images, need to
     # remove delay for closed-loop (the image itself represents the delay)
     kinematic_model.setup_optics(cl_delay=[0, 0])
-    kinematic_model.setup_camera(band_changetime=120, **rotator_movement(100), readtime=readtime)
+    kinematic_model.setup_camera(**rotator_movement(100), band_changetime=120, readtime=readtime)
     kinematic_model.mount_bands(["u", "g", "r", "i", "z", "y"])
 
     model_slewtimes = {}  # current performance model
     model_slewtimes_ideal = {}  # ideal performance model
     tma_alt_maxv = {}
     tma_az_maxv = {}
+
+    utc_tz_visit_times = convert_time_to_tz_datetime(
+        Time(visits.obs_start_mjd, format="mjd", scale="tai").utc
+    )
+    visits["utc_tz_obs_start"] = utc_tz_visit_times
 
     for dayobs in visits.day_obs.unique():
         night_visits = visits.query("day_obs == @dayobs").sort_values(by="seq_num")
@@ -305,7 +312,7 @@ def add_model_slew_times(
             kinematic_model_ideal.park()
             # Now sequentially slew through visits
             for visitid, v in night_visits.iterrows():
-                last_idx = np.where(tma_speeds.index.array - np.datetime64(v.obs_start) < 0)[0][-1]
+                last_idx = np.where(tma_speeds.index <= v.utc_tz_obs_start)[0][-1]
                 tma = dict(tma_speeds.iloc[last_idx])
                 tma["settle_time"] = model_settle
                 # Change speeds on non-ideal kinematic model
@@ -376,7 +383,10 @@ def add_model_slew_times(
     # Add also the distance on the sky between the visits (degrees)
     # This isn't always the slew distance, but it's the best we can do here
     distances = angular_separation(
-        visits.s_ra[1:].array, visits.s_dec[1:].array, visits.s_ra[0:-1].array, visits.s_dec[0:-1].array
+        visits.s_ra[1:].to_numpy(),
+        visits.s_dec[1:].to_numpy(),
+        visits.s_ra[0:-1].to_numpy(),
+        visits.s_dec[0:-1].to_numpy(),
     )
     slewing["slew_distance"] = np.concatenate([np.array([0]), distances])
 
