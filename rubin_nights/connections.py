@@ -179,16 +179,20 @@ def get_clients(
 
     # In general: look for a usdf-<database> first in repertoire
     # if it doesn't exist, then use local-<database>.
-    # But efd is currently listed in usdfdev-efd when it doesn't exist.
     try:
+        # At the moment this will always fall back to segwarides + usdf_efd.
         efd_client = InfluxQueryClient("usdf", db_name="efd", repertoire_site=site, auth=auth)
         efd_client.get_topics()
     except KeyError:
-        logger.warning(f"EFD service not available at USDF. Falling back to {site}.")
+        logger.warning(f"EFD service not available from USDF. Falling back to {site}.")
         efd_client = InfluxQueryClient(site, db_name="efd", repertoire_site=site, auth=auth)
 
     # Connect to the databases which are not in repertoire yet
-    obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv")
+    # Obsenv not present on usdf-dev
+    if "usdf" in site:
+        obsenv_client = InfluxQueryClient("usdf", db_name="lsst.obsenv")
+    else:
+        obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv")
     pp_client = InfluxQueryClient(site, db_name="lsst.prompt")
     too_client = InfluxQueryClient("summit", db_name="lsst.scimma")
 

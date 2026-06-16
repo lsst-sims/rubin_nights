@@ -168,7 +168,10 @@ class InfluxQueryClient:
             response.raise_for_status()
         except Exception as e:
             logger.debug(e)
-            logger.error(f"Could not fetch credentials from repertoire at {creds_service}.")
+            if not REPERTOIRE_DEV:
+                logger.error(f"Could not fetch credentials from repertoire at {creds_service}.")
+            else:
+                logger.debug(f"Could not fetch credentials from repertoire at {creds_service}.")
             raise RepertoireCredsError
 
         # Parse the influx db credentials.
