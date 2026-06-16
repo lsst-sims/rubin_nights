@@ -40,8 +40,8 @@ def _apply_night_hours(x: pd.Series) -> pd.Series:
         # Don't count open time before sunset.
         start = np.max([x["open_time"], x["sunset12"]])
     if pd.isna(x["close_time"]):
-        # Put in sunrise if we do not yet have a close time.
-        end = x["sunrise12"]
+        # Put minimum of now or sunrise if we do not yet have a close time.
+        end = np.min([Time.now().utc.datetime, x["sunrise12"]])
     else:
         # Don't count open time beyond sunrise.
         end = np.min([x["close_time"], x["sunrise12"]])
