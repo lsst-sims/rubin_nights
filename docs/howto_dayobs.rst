@@ -59,12 +59,25 @@ Converting between formats
 Converting a DataFrame column of MJD values
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-:func:`~dayobs_utils.mjd_to_dayobs` works element-wise and is convenient with
-``pandas.Series.apply``:
+:func:`~dayobs_utils.mjd_to_dayobs_array` converts MJD (in TAI) into day_obs integers.
+This is convenient when working with opsim outputs which do not have a day_obs value.
 
 .. code-block:: python
 
-    visits["day_obs"] = visits["obs_start_mjd"].apply(rn_dayobs.mjd_to_dayobs)
+    visits["day_obs"] = rn_dayobs.mjd_to_dayobs_array(visits["observationStartMJD"])
+
+
+Converting an EFD DataFrame time index
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+:func:`~influx_query.day_obs_from_efd_index_array` converts the EFD index times
+into day_obs integers. This is convenient to group EFD results per day_obs.
+
+.. code-block:: python
+
+    from rubin_nights.influx_query import day_obs_from_efd_index_array
+    efd_data["day_obs"] = day_obs_from_efd_index_array(efd_data.index)
+
 
 Setting a time window for a night
 -----------------------------------
@@ -105,7 +118,7 @@ Working with a range of nights
 --------------------------------
 
 :func:`~dayobs_utils.day_obs_list` returns every ``day_obs`` integer between two
-:class:`~astropy.time.Time` values, inclusive:
+:class:`~astropy.time.Time` values, exclusive of the last value:
 
 .. code-block:: python
 
@@ -115,7 +128,7 @@ Working with a range of nights
         Time("2026-06-01T12:00:00"),
         Time("2026-06-10T12:00:00"),
     )
-    # [20260601, 20260602, ..., 20260610]
+    # [20260601, 20260602, ..., 20260609]
 
 Estimating visit counts
 ------------------------
