@@ -1,7 +1,6 @@
 import unittest
 from unittest.mock import Mock
 
-import numpy as np
 import pandas as pd
 from astropy.time import Time
 
@@ -75,7 +74,7 @@ class TestGetDomeOpenClose(unittest.TestCase):
 
     def test_open_without_close_gives_nat_close(self) -> None:
         """An open event with no following close should
-        return NaT for close_time and time up to now/sunrise for dome_hours.."""
+        return NaT for close_time and time up to now/sunrise for dome_hours."""
         open_df = _make_shutter_df([OPEN_TIME])
         client = _make_efd_client(open_df, pd.DataFrame([]))
 
