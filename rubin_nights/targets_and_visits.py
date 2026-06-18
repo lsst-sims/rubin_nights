@@ -144,7 +144,7 @@ def targets_and_visits(
                 index=t_targets.index,
             )
             new_df.rename({"time": "time_o"}, axis=1, inplace=True)
-            new_df.time_o = np.nan
+            new_df["time_o"] = np.nan
             t_to = pd.merge(targets, new_df, left_index=True, right_index=True, suffixes=("", "_o"))
             t_to.reset_index("time", inplace=True)
         else:
@@ -162,20 +162,20 @@ def targets_and_visits(
         to.append(t_to)
     if len(to) == 0:
         # No information; make a minimal dataframe to be able to continue.
-        to = pd.DataFrame([], columns=["targetId", "blockId", "skyAngle"])
+        to_df = pd.DataFrame([], columns=["targetId", "blockId", "skyAngle"])
     else:
-        to = pd.concat(to)
-    to = to.astype({"targetId": int, "blockId": int, "skyAngle": float})
-    to.drop([c for c in to.columns if "private" in c], axis=1, inplace=True)
-    logger.debug(f"Joined targets and observations for {len(to)} events")
+        to_df = pd.concat(to)
+    to_df = to_df.astype({"targetId": int, "blockId": int, "skyAngle": float})
+    to_df.drop([c for c in to_df.columns if "private" in c], axis=1, inplace=True)
+    logger.debug(f"Joined targets and observations for {len(to_df)} events")
 
     # If either visit or nextvisit are empty, just quit here.
     if len(visits) == 0:
         logger.warning("Could not retrieve any visits")
-        return pd.DataFrame([]), [], to, nextvisits, visits
+        return pd.DataFrame([]), [], to_df, nextvisits, visits
     elif len(nextvisits) == 0:
         logger.warning("Could not find any nextVisits, can't link to visits")
-        return pd.DataFrame([]), [], to, nextvisits, visits
+        return pd.DataFrame([]), [], to_df, nextvisits, visits
 
     # nextVisit to visits groupId should be unique
     nv = pd.merge(
@@ -186,9 +186,9 @@ def targets_and_visits(
         right_on="groupId",
         suffixes=["", "_nv"],
     )
-    visit_id = np.where(np.isnan(nv["visit_id"].values), 0, nv["visit_id"].values)
+    visit_id = np.where(np.isnan(nv["visit_id"].array), 0, nv["visit_id"].array)
     nv["visit_id"] = visit_id
-    scriptSalIndex = np.where(np.isnan(nv["scriptSalIndex"].values), 0, nv["scriptSalIndex"].values)
+    scriptSalIndex = np.where(np.isnan(nv["scriptSalIndex"].array), 0, nv["scriptSalIndex"].array)
     nv["scriptSalIndex"] = scriptSalIndex
     nv = nv.astype({"visit_id": int, "scriptSalIndex": int, "cameraAngle": float})
     nv.drop([c for c in nv.columns if "private" in c], axis=1, inplace=True)
@@ -202,7 +202,7 @@ def targets_and_visits(
 
     # Make sure column names in visits take priority
     vt = pd.merge_asof(
-        to.sort_values("blockId"),
+        to_df.sort_values("blockId"),
         nv.sort_values("scriptSalIndex"),
         left_on="blockId",
         right_on="scriptSalIndex",
@@ -214,7 +214,7 @@ def targets_and_visits(
     )
     int_cols = ["visit_id", "day_obs", "seq_num", "scriptSalIndex"]
     for col in int_cols:
-        tt = np.where(np.isnan(vt[col].values), 0, vt[col].values)
+        tt = np.where(np.isnan(vt[col].array), 0, vt[col].array)
         vt[col] = tt
     vt = vt.astype(dict([(col, int) for col in int_cols]))
     vt.sort_values("time", inplace=True)
@@ -247,4 +247,4 @@ def targets_and_visits(
         "target_name",
     ]
 
-    return vt, cols, to, nv, visits
+    return vt, cols, to_df, nv, visits

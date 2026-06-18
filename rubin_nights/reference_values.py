@@ -23,7 +23,7 @@ BAD_VISITS_LSSTCOMCAM = (
 SCIENCE_PROGRAMS = ("BLOCK-365", "BLOCK-407", "BLOCK-408", "BLOCK-416", "BLOCK-417", "BLOCK-419", "BLOCK-421")
 
 # Approximate pixel scale
-PLATESCALE = 0.2
+PLATESCALE: float = 0.2
 # convert from SIGMA to FWHM
 SIGMA_TO_FWHM: float = 2.0 * np.sqrt(2.0 * np.log(2.0))
 FWHM_TO_SIGMA: float = 1 / SIGMA_TO_FWHM

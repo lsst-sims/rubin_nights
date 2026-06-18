@@ -158,6 +158,23 @@ class NightReportClient(LoggingServiceClient):
         url = api_base + "/nightreport/reports"
         super().__init__(url=url, auth=auth, results_as_dataframe=False)
 
+    # Override base query for clearer return typing
+    def query(self, params: dict[str, Any]) -> list[dict[Any, Any]]:
+        """Override to narrow the return type to list only."""
+        result = super().query(params=params)
+        # This always returns a list[dict] because results_as_dataframe is
+        # False. Overriding here lets mypy know that.
+        assert isinstance(result, list), "Expected list but got DataFrame"
+        return result
+
+    async def async_query(self, params: dict[str, Any]) -> list[dict[Any, Any]]:
+        """Override to narrow the return type to list only."""
+        result = await super().async_query(params=params)
+        # This always returns a list[dict] because results_as_dataframe is
+        # False. Overriding here lets mypy know that.
+        assert isinstance(result, list), "Expected list but got DataFrame"
+        return result
+
     @staticmethod
     def query_params(day_obs: str | int) -> dict[str, Any]:
         """Set query parameters for night report query.
@@ -352,6 +369,19 @@ class NarrativeLogClient(LoggingServiceClient):
         url = api_base + "/narrativelog/messages"
         super().__init__(url=url, auth=auth, results_as_dataframe=True)
 
+    # Override base query for clearer return typing
+    def query(self, params: dict[str, Any]) -> pd.DataFrame:
+        """Override to narrow the return type to list only."""
+        result = super().query(params=params)
+        assert isinstance(result, pd.DataFrame), "Expected DataFrame but got list"
+        return result
+
+    async def async_query(self, params: dict[str, Any]) -> pd.DataFrame:
+        """Override to narrow the return type to list only."""
+        result = await super().async_query(params=params)
+        assert isinstance(result, pd.DataFrame), "Expected DataFrame but got list"
+        return result
+
     @staticmethod
     def query_params(t_start: Time, t_end: Time, user_params: dict | None = None) -> dict[str, Any]:
         """Set query parameters for narrative log query.
@@ -419,14 +449,14 @@ class NarrativeLogClient(LoggingServiceClient):
 
         # Strip excessive \r\n and \n\n from messages
         messages["message_text"] = messages.apply(strip_rns, axis=1)
+
         # Add a time index
         time_start = messages.apply(logtime_to_datetime, args=("date_begin",), axis=1)
         time_end = messages.apply(logtime_to_datetime, args=("date_end",), axis=1)
         time = np.where(messages.time_lost > 0, time_end, time_start)
-        messages["time"] = time
-
+        messages["time"] = pd.DatetimeIndex(time).tz_localize("UTC")
         messages.set_index("time", inplace=True)
-        messages.index = messages.index.tz_localize("UTC")
+
         # Join the components and add "Log" explicitly
         # Choose between 'components' and 'components_json'
         if np.all(messages["components_json"] == None):  # noqa: E711
@@ -524,6 +554,19 @@ class ExposureLogClient(LoggingServiceClient):
     def __init__(self, api_base: str, auth: tuple):
         url = api_base + "/exposurelog/messages"
         super().__init__(url=url, auth=auth, results_as_dataframe=True)
+
+    # Override base query for clearer return typing
+    def query(self, params: dict[str, Any]) -> pd.DataFrame:
+        """Override to narrow the return type to list only."""
+        result = super().query(params=params)
+        assert isinstance(result, pd.DataFrame), "Expected DataFrame but got list"
+        return result
+
+    async def async_query(self, params: dict[str, Any]) -> pd.DataFrame:
+        """Override to narrow the return type to list only."""
+        result = await super().async_query(params=params)
+        assert isinstance(result, pd.DataFrame), "Expected DataFrame but got list"
+        return result
 
     @staticmethod
     def query_params(t_start: Time, t_end: Time, user_params: dict | None = None) -> dict[str, Any]:

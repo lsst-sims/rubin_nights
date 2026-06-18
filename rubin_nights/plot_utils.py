@@ -120,9 +120,9 @@ def detector_plot(
             fig = tmpfig
 
     if vmin is None:
-        vmin = np.nanmin(detector_values[key].values)
+        vmin = np.nanmin(detector_values[key].array)
     if vmax is None:
-        vmax = np.nanmax(detector_values[key].values)
+        vmax = np.nanmax(detector_values[key].array)
     norm = Normalize(vmin=vmin, vmax=vmax)
 
     tmp = pd.merge(camera_df, detector_values, how="outer", left_on="detId", right_on="detector")
@@ -187,4 +187,6 @@ def lsst_camera_df() -> pd.DataFrame:
     """Return a dataframe containing the outline of the camera footprint."""
     package_dir = Path(__file__).resolve().parent
     camera_path = package_dir / "data" / "lsstCamera.h5"
-    return pd.read_hdf(camera_path)
+    camera_footprint = pd.read_hdf(camera_path)
+    assert isinstance(camera_footprint, pd.DataFrame)
+    return camera_footprint
