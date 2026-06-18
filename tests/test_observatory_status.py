@@ -75,7 +75,7 @@ class TestGetDomeOpenClose(unittest.TestCase):
 
     def test_open_without_close_gives_nat_close(self) -> None:
         """An open event with no following close should
-        return NaT for close_time."""
+        return NaT for close_time and time up to now/sunrise for dome_hours.."""
         open_df = _make_shutter_df([OPEN_TIME])
         client = _make_efd_client(open_df, pd.DataFrame([]))
 
@@ -85,7 +85,7 @@ class TestGetDomeOpenClose(unittest.TestCase):
         row = result.iloc[0]
         self.assertFalse(pd.isna(row["open_time"]))
         self.assertTrue(pd.isna(row["close_time"]))
-        self.assertTrue(np.isnan(row["dome_hours"]))
+        self.assertTrue(row["dome_hours"] > 0)
 
     def test_multiple_open_close_pairs_same_night(self) -> None:
         """Two open/close pairs separated by >5 minutes each produce a row."""

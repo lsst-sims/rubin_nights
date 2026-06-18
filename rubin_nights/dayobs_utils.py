@@ -3,6 +3,7 @@ import functools
 
 import astropy.units as u
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 from astroplan import Observer
 from astropy.coordinates.errors import UnknownSiteException
@@ -19,6 +20,7 @@ __all__ = [
     "day_obs_to_date",
     "day_obs_to_time",
     "mjd_to_dayobs",
+    "mjd_to_dayobs_array",
     "day_obs_list",
     "rubin_observer",
     "day_obs_sunset_sunrise",
@@ -83,6 +85,7 @@ def day_obs_to_time(day_obs: int | str) -> Time:
 
 def mjd_to_dayobs(mjd: float) -> int:
     """Convert MJD to day_obs integer YYYYMMDD.
+    Deprecated and will be removed.
 
     Parameters
     ----------
@@ -103,6 +106,29 @@ def mjd_to_dayobs(mjd: float) -> int:
     """
     mjdfloor = Time(np.floor(mjd - 0.5) + 0.5, format="mjd", scale="tai")
     return day_obs_str_to_int(mjdfloor.isot.split("T")[0])
+
+
+def mjd_to_dayobs_array(mjd: npt.ArrayLike) -> npt.NDArray[np.int_]:
+    """Convert MJD to day_obs integer YYYYMMDD, as an array.
+
+    Parameters
+    ----------
+    mjd
+        Modified Julian Date to convert to day_obs integer YYYYMMDD.
+
+    Returns
+    -------
+    day_obs : `np.ndarray( dtype=`int`)`
+
+    Examples
+    --------
+    Pass an array or pandas dataframe column to convert to `day_obs` values.
+
+    >>> visits["day_obs"] = mjd_to_dayobs_array(visits["mjd_col"])
+    """
+    floored = np.floor(np.asarray(mjd) - 0.5) + 0.5
+    times = Time(floored, format="mjd", scale="tai")
+    return np.char.replace(times.isot.astype("U10"), "-", "").astype(int)
 
 
 def day_obs_list(t_start: Time, t_end: Time) -> list[int]:

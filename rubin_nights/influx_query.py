@@ -39,7 +39,10 @@ def day_obs_from_efd_index(x: pd.Series) -> int:
 
 
 def day_obs_from_efd_index_array(utc_time_format: pd.Series | np.ndarray) -> pd.Series | np.ndarray:
-    """Convert an array or series of astropy-readable times to dayobs ints."""
+    """Convert an array or series of astropy-readable times to dayobs ints.
+
+    >>> day_obs = day_obs_from_efd_index_array(efd_dataframe.index)
+    """
     if len(utc_time_format) == 0:
         return np.array([], dtype=int)
     # convert to the MJD DayObs time (Noon UTC)

@@ -2,9 +2,15 @@ import logging
 
 import numpy as np
 import pandas as pd
-from astropy.time import Time
+from astropy.time import Time, TimeDelta
 
-from .dayobs_utils import day_obs_list, day_obs_sunset_sunrise, day_obs_sunset_sunrise_df, day_obs_to_time
+from .dayobs_utils import (
+    day_obs_list,
+    day_obs_sunset_sunrise,
+    day_obs_sunset_sunrise_df,
+    day_obs_to_time,
+    time_to_day_obs,
+)
 from .influx_query import InfluxQueryClient, day_obs_from_efd_index_array
 
 __all__ = [
@@ -23,40 +29,6 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
-def _apply_night_hours(x: pd.Series) -> pd.Series:
-    """Add the sunrise/sunset and overlap with dome open hours.
-    A pandas apply method for the dome_open_close function.
-    """
-    sunset, sunrise = day_obs_sunset_sunrise(x["day_obs"], sun_alt=-12)
-    x["sunset12"] = sunset.utc.datetime
-    x["sunrise12"] = sunrise.utc.datetime
-    x["night_hours"] = (x["sunrise12"] - x["sunset12"]) / pd.Timedelta(1, "h")
-    # Don't count open time before sunset.
-    if pd.isna(x["open_time"]):
-        # is "open_time" is NaT, then "close_time" will be as well.
-        # Put in a value that will result in 0 open time.
-        start = x["sunrise12"]
-    else:
-        # Don't count open time before sunset.
-        start = np.max([x["open_time"], x["sunset12"]])
-    if pd.isna(x["close_time"]):
-        # Put minimum of now or sunrise if we do not yet have a close time.
-        end = np.min([Time.now().utc.datetime, x["sunrise12"]])
-    else:
-        # Don't count open time beyond sunrise.
-        end = np.min([x["close_time"], x["sunrise12"]])
-
-    # If the dome opened and closed during the daytime, disregard.
-    # Open and close in the afternoon.
-    if x["close_time"] < x["sunset12"]:
-        end = start
-    # Open and close in the morning.
-    if x["open_time"] > x["sunrise12"]:
-        end = start
-    x["open_hours"] = (end - start) / pd.Timedelta(1, "h")
-    return x
-
-
 def get_dome_open_close(
     t_start: Time, t_end: Time, efd_client: InfluxQueryClient, with_sunset_sunrise: bool = True
 ) -> pd.DataFrame:
@@ -68,8 +40,12 @@ def get_dome_open_close(
     ----------
     t_start
         Time of the start of the events.
+        Note that this will be corrected to the start of the dayobs,
+        to avoid missing dome-open events at the start of the night.
     t_end
         Time of the end of the events.
+        Note that this will be corrected to the end of the dayobs,
+        to avoid missing dome-close events later in the night.
     efd_client
         Sync EFD client.
     with_sunrise_sunset
@@ -92,6 +68,17 @@ def get_dome_open_close(
     if t_end <= t_start:
         logger.warning(f"t_end {t_end.isot} should be larger than t_start {t_start.isot}")
         return pd.DataFrame([])
+
+    # Adjust t_start and t_end to the start and end of their relevant dayobs.
+    t_start = day_obs_to_time(time_to_day_obs(t_start))
+    t_end = day_obs_to_time(time_to_day_obs(t_end))
+    if t_end == t_start:
+        t_end += TimeDelta(0.999, format="jd")
+
+    logger.debug(
+        f"Getting dome open/close times for {t_start.isot} to {t_end.isot} " "(corrected to start of dayobs)."
+    )
+
     # Get dome open/close information.
     # this should likely come from lsst.sal.MTDome.logevent_shutterMotion
     # instead, once logevent_shutterMotion becomes reliable.
@@ -186,8 +173,14 @@ def get_dome_open_close(
                         # No close_start times at all
                         close_time = pd.NaT
                     if pd.isna(close_time):
-                        open_hours = np.nan
+                        # Let's give a cumulative "up to now" time,
+                        # if there was an open time but no close.
+                        # (remember day_obs_sunset_sunrise caches)
+                        sunset, sunrise = day_obs_sunset_sunrise(day_obs, sun_alt=-12)
+                        count_stop = np.min([Time.now().utc.datetime, sunrise.utc.datetime])
+                        open_hours = (count_stop - open_time) / np.timedelta64(3600, "s")
                     else:
+                        # Calculate the actual dome-shutter-open time.
                         open_hours = (close_time - open_time) / np.timedelta64(3600, "s")
 
                     dome_open.append([open_time, close_time, open_hours, day_obs])
@@ -216,19 +209,48 @@ def get_dome_open_close(
 
     if with_sunset_sunrise:
         # Add sunrise/sunset/night open hours information to the dataframe.
-        cols = ["sunset12", "sunrise12", "night_hours", "open_hours"]
-        night_info = pd.DataFrame(
-            [
-                np.array([pd.Timestamp(0)] * len(dome_open_df)),
-                np.array([pd.Timestamp(0)] * len(dome_open_df)),
-                np.zeros(len(dome_open_df)),
-                np.zeros(len(dome_open_df)),
-            ],
-            index=cols,
-            columns=dome_open_df.index.copy(),
-        ).T
-        dome_open_df = dome_open_df.join(night_info)
-        dome_open_df = dome_open_df.apply(_apply_night_hours, axis=1)
+
+        def _apply_night_hours(x: pd.Series) -> pd.Series:
+            """Add the sunrise/sunset and overlap with dome open hours.
+            A pandas apply method for the dome_open_close function.
+            """
+            sunset, sunrise = day_obs_sunset_sunrise(x["day_obs"], sun_alt=-12)
+            sunset12 = sunset.utc.datetime
+            sunrise12 = sunrise.utc.datetime
+            night_hours = (sunrise12 - sunset12) / pd.Timedelta(1, "h")
+
+            if pd.isna(x["open_time"]) and pd.isna(x["close_time"]):
+                # Dome did not open at all.
+                start = sunrise12
+                end = sunrise12
+            elif pd.isna(x["close_time"]):
+                # Only close time is NaT (dome is still open).
+                start = np.max([x["open_time"], sunset12])
+                end = np.min([Time.now().utc.datetime, x["sunrise12"]])
+            else:
+                # Dome opened and closed. Account for nighttime.
+                # Don't count open time before sunset.
+                start = np.max([x["open_time"], sunset12])
+                # Don't count open time beyond sunrise.
+                end = np.min([x["close_time"], sunrise12])
+
+                # If the dome opened and closed during the daytime, disregard.
+                # Afternoon :
+                if x["close_time"] < sunset12:
+                    end = start
+                # Morning:
+                if x["open_time"] > sunrise12:
+                    end = start
+
+            open_hours = (end - start) / pd.Timedelta(1, "h")
+            x = pd.Series(
+                [sunset12, sunrise12, night_hours, open_hours],
+                index=["sunset12", "sunrise12", "night_hours", "open_hours"],
+            )
+            return x
+
+        night_df = dome_open_df.apply(_apply_night_hours, axis=1)
+        dome_open_df = pd.merge(dome_open_df, night_df, how="outer", left_index=True, right_index=True)
 
     return dome_open_df
 
