@@ -542,8 +542,8 @@ def _obs_status_state_changes(obs_status_messages: pd.DataFrame, status_type: st
     # where the starting point of the 'status_type' really was.
     idx = o.iloc[idx].query("not statusLabels.str.contains(@status_type)").index.values + 1
     idx = idx[np.where((idx >= 0) & (idx <= len(o)))]
-    down_starts = o.iloc[idx]
-    down_starts.loc[:, "start"] = True
+    down_starts = o.iloc[idx].copy()
+    down_starts["start"] = True
     # Now select the records prior to those which were not status_type
     idx = o.query("not statusLabels.str.contains(@status_type)").index.values - 1
     idx = idx[np.where((idx >= 0) & (idx <= len(o)))]
@@ -551,8 +551,8 @@ def _obs_status_state_changes(obs_status_messages: pd.DataFrame, status_type: st
     # (signalling the last record of status_type)
     idx = o.iloc[idx].query("statusLabels.str.contains(@status_type)").index.values + 1
     idx = idx[np.where((idx >= 0) & (idx <= len(o)))]
-    down_ends = o.iloc[idx]
-    down_ends.loc[:, "start"] = False
+    down_ends = o.iloc[idx].copy()
+    down_ends["start"] = False
     down_edges = pd.concat([down_starts, down_ends]).sort_values("time")
     # Summarize closures.
     closure = []
