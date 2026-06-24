@@ -491,9 +491,7 @@ def get_obs_status_messages(t_start: Time, t_end: Time, efd_client: InfluxQueryC
     return obs_status_messages
 
 
-def _obs_status_state_changes(
-    obs_status_messages: pd.DataFrame, status_type: str
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _obs_status_state_changes(obs_status_messages: pd.DataFrame, status_type: str) -> pd.DataFrame:
     """Find start and end of state changes for `status_type`.
 
     Assumes that WEATHER and DOWNTIME are descriptive and exist
@@ -512,8 +510,6 @@ def _obs_status_state_changes(
     -------
     down_summary
         The dataframe containing the summary of downtime periods.
-    down_edges
-        The dataframe containing the messages identified as state changes.
 
     Notes
     -----
@@ -533,6 +529,12 @@ def _obs_status_state_changes(
         # when counting up contributed hours.
         o = obs_status_messages.copy()
     o.reset_index(inplace=True)
+
+    # Are there no records with this type at all?
+    if len(o.query("statusLabels.str.contains(@status_type)")) == 0:
+        down_summary = pd.DataFrame([], columns=["day_obs", "sunset12", "sunrise12", "start", "end", "hours"])
+        return down_summary
+
     # Select the previous records to those with 'status_type'
     idx = o.query("statusLabels.str.contains(@status_type)").index.values - 1
     idx = idx[np.where((idx >= 0) & (idx <= len(o)))]
@@ -650,7 +652,7 @@ def _obs_status_state_changes(
     down_summary = pd.DataFrame(
         closure, columns=["day_obs", "sunset12", "sunrise12", "start", "end", "hours"]
     )
-    return down_summary, down_edges
+    return down_summary
 
 
 def get_observatory_state_times(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) -> pd.DataFrame:
@@ -675,17 +677,17 @@ def get_observatory_state_times(t_start: Time, t_end: Time, efd_client: InfluxQu
     """
     obs_status_messages = get_obs_status_messages(t_start, t_end, efd_client)
 
-    weather, weather_edges = _obs_status_state_changes(obs_status_messages, "WEATHER")
+    weather = _obs_status_state_changes(obs_status_messages, "WEATHER")
     weather["type"] = "WEATHER"
-    downtime, downtime_edges = _obs_status_state_changes(obs_status_messages, "DOWNTIME")
+    downtime = _obs_status_state_changes(obs_status_messages, "DOWNTIME")
     downtime["type"] = "DOWNTIME"
-    fault, fault_edges = _obs_status_state_changes(obs_status_messages, "FAULT")
+    fault = _obs_status_state_changes(obs_status_messages, "FAULT")
     fault["type"] = "FAULT"
-    operational, operational_edges = _obs_status_state_changes(obs_status_messages, "OPERATIONAL")
+    operational = _obs_status_state_changes(obs_status_messages, "OPERATIONAL")
     operational["type"] = "OPERATIONAL"
-    idle, idle_edges = _obs_status_state_changes(obs_status_messages, "IDLE")
+    idle = _obs_status_state_changes(obs_status_messages, "IDLE")
     idle["type"] = "IDLE"
-    unknown, unknown_edges = _obs_status_state_changes(obs_status_messages, "UNKNOWN")
+    unknown = _obs_status_state_changes(obs_status_messages, "UNKNOWN")
     unknown["type"] = "UNKNOWN"
     obs_status_periods = pd.concat([weather, downtime, fault, idle, unknown, operational]).sort_values(
         "start", ignore_index=True
