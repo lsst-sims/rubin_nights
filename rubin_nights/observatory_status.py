@@ -226,7 +226,7 @@ def get_dome_open_close(
             elif pd.isna(x["close_time"]):
                 # Only close time is NaT (dome is still open).
                 start = np.max([x["open_time"], sunset12])
-                end = np.min([Time.now().utc.datetime, x["sunrise12"]])
+                end = np.min([Time.now().utc.datetime, sunrise12])
             else:
                 # Dome opened and closed. Account for nighttime.
                 # Don't count open time before sunset.
