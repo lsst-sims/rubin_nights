@@ -1,6 +1,11 @@
+from __future__ import annotations
+
 import datetime
 import logging
+from collections.abc import Awaitable
 from json import JSONDecodeError
+from types import TracebackType
+from typing import Optional, Type
 
 import httpx
 import numpy as np
@@ -25,14 +30,14 @@ __all__ = ["ConsDbTap", "ConsDbFastAPI", "ConsDbSql"]
 
 
 class ConsDb:
+    """Use the child classes, ConsDbTap, ConsDbFastAPI or ConsDbSql,
+    instead of this class directly. This class simply implements
+    some convenience functions for fetching visits and ccdvisits.
+    """
 
-    def query(self, query: str) -> pd.DataFrame:
-        """The query method is implemented in the child classes,
-        according to the specific service/interface used to access the ConsDB.
-        """
-        logger.error("Use a specific-service version of the ConsDB.")
-        logger.error("Query is implemented in these classes only.")
-        raise NotImplementedError
+    def query(self, query: str) -> pd.DataFrame | Awaitable[pd.DataFrame]:
+        """Execute ConsDB query."""
+        raise NotImplementedError("Must be implemented by child class")
 
     def get_visits(
         self,
@@ -89,8 +94,9 @@ class ConsDb:
         query += " order by visit1.visit_id"
         logger.debug(f"Query executed: {query}")
         visits = self.query(query)
+        assert isinstance(visits, pd.DataFrame)
 
-        if len(visits) == 0:
+        if visits.empty:
             logger.info(f"No visits for {instrument} retrieved from consdb")
             return pd.DataFrame([])
 
@@ -140,7 +146,7 @@ class ConsDb:
         if detector_max is not None:
             query += f" and c.detector <= {detector_max}"
         ccdvisits = self.query(query)
-
+        assert isinstance(ccdvisits, pd.DataFrame)
         return ccdvisits
 
 
@@ -191,6 +197,7 @@ class ConsDbTap(ConsDb):
         job.wait(phases=["COMPLETED", "ERROR", "ABORTED"], timeout=self.query_timeout)
         if job.phase == "COMPLETED":
             results = job.fetch_result().to_table().to_pandas()
+            job.delete()
         else:
             try:
                 job.raise_if_error()
@@ -199,19 +206,27 @@ class ConsDbTap(ConsDb):
             results = pd.DataFrame([])
         return results
 
-    async def async_query(self, query: str) -> pd.DataFrame:
-        """PyvoTapService handles async queries outside of asyncio.
-        Use the `tap` attribute directly.
-        """
-        logger.error(
-            "async queries via TAP should be handled by interacting"
-            "with the ConsDbTAP.tap service directly."
-        )
-        raise NotImplementedError
+
+def _fastapi_to_pandas(messages: dict) -> pd.DataFrame:
+    # Turn json dictionary returned from consdb into pandas dataframe
+    # De-duplicate columns (assumes they are identical).
+    # Non-duplication breaks later groupby.
+    results = pd.DataFrame(messages["data"], columns=messages["columns"])
+    # Check for duplicate columns.
+    indices = np.where(pd.Series(results.columns.duplicated()))[0]
+    newcols = results.columns.to_list()
+    for i in indices:
+        newcols[i] = newcols[i] + "_duplicate"
+    # Have to change only some instances of the duplicates
+    results.columns = newcols
+    results.drop(results.columns[indices], axis=1, inplace=True)
+    return results
 
 
 class ConsDbFastAPI(ConsDb):
     """Query the ConsDB through the REST API / FastAPI interface.
+
+    Synchronous queries.
 
     Parameters
     ----------
@@ -235,31 +250,23 @@ class ConsDbFastAPI(ConsDb):
         self.httpx_client = httpx.Client(
             base_url=self.base_url, timeout=timeout, transport=transport, auth=auth
         )
-        atransport = httpx.AsyncHTTPTransport(retries=2)
-        self.async_client = httpx.AsyncClient(
-            base_url=self.base_url, timeout=timeout, transport=atransport, auth=auth
-        )
-
-    def __del__(self) -> None:
-        self.httpx_client.close()
 
     def __repr__(self) -> str:
         return self.base_url
 
-    def _to_pandas(self, messages: dict) -> pd.DataFrame:
-        # Turn json dictionary returned from consdb into pandas dataframe
-        # De-duplicate columns (assumes they are identical).
-        # Non-duplication breaks later groupby.
-        results = pd.DataFrame(messages["data"], columns=messages["columns"])
-        # Check for duplicate columns.
-        indices = np.where(pd.Series(results.columns.duplicated()))[0]
-        newcols = results.columns.to_list()
-        for i in indices:
-            newcols[i] = newcols[i] + "_duplicate"
-        # Have to change only some instances of the duplicates
-        results.columns = newcols
-        results.drop(results.columns[indices], axis=1, inplace=True)
-        return results
+    def close(self) -> None:
+        self.httpx_client.close()
+
+    def __enter__(self) -> ConsDbFastAPI:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
+        self.close()
 
     def query(self, query: str) -> pd.DataFrame:
         """Execute synchronous FastAPI ConsDB query.
@@ -321,12 +328,58 @@ class ConsDbFastAPI(ConsDb):
         else:
             messages = response.json()
         if len(messages) > 0:
-            results = self._to_pandas(messages)
+            results = _fastapi_to_pandas(messages)
         else:
             results = pd.DataFrame([])
         return results
 
-    async def async_query(self, query: str) -> pd.DataFrame:
+
+class AsyncConsDbFastAPI(ConsDb):
+    """Query the ConsDB through the REST API / FastAPI interface.
+
+    Asynchronous queries.
+
+    Parameters
+    ----------
+    api_base
+        Base API for services.
+        e.g. https://usdf-rsp.slac.stanford.edu
+    auth
+        The username and password for authentication.
+    query_timeout
+        Seconds to wait for the query to return data.
+
+    """
+
+    # From within the USDF RSP, you could also use
+    # http://consdb-pq.consdb:8080/ for the ConsDB api_base.
+    # This may be slightly faster without F5 load balancer packet checking.
+    def __init__(self, api_base: str, auth: tuple, query_timeout: float = 10 * 60) -> None:
+        self.base_url = api_base + "/consdb"
+        timeout = httpx.Timeout(timeout=query_timeout, connect=60.0)
+        atransport = httpx.AsyncHTTPTransport(retries=2)
+        self.async_client = httpx.AsyncClient(
+            base_url=self.base_url, timeout=timeout, transport=atransport, auth=auth
+        )
+
+    def __repr__(self) -> str:
+        return self.base_url
+
+    async def aclose(self) -> None:
+        await self.async_client.aclose()
+
+    async def __aenter__(self) -> AsyncConsDbFastAPI:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
+        await self.aclose()
+
+    async def query(self, query: str) -> pd.DataFrame:
         """Execute asynchronous FastAPI ConsDB query.
 
         Parameters
@@ -379,7 +432,7 @@ class ConsDbFastAPI(ConsDb):
         else:
             messages = response.json()
         if len(messages) > 0:
-            results = self._to_pandas(messages)
+            results = _fastapi_to_pandas(messages)
         else:
             results = pd.DataFrame([])
         return results

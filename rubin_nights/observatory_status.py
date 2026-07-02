@@ -480,10 +480,11 @@ def get_obs_status_messages(t_start: Time, t_end: Time, efd_client: InfluxQueryC
     topic = "lsst.sal.Scheduler.logevent_observatoryStatus"
     fields = ["status", "note", "statusLabels"]
     obs_status_messages: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end, index=1)
-    if len(obs_status_messages) == 0:
-        obs_status_messages = pd.DataFrame([], columns=fields)
+    if obs_status_messages.empty:
+        obs_status_messages = pd.DataFrame([], columns=["day_obs"] + fields)
+    # Add day_obs label.
     obs_status_messages["day_obs"] = day_obs_from_efd_index_array(obs_status_messages.index.to_series())
-    # WEATHER or DOWNTIME alone should match with IDLE
+    # WEATHER or DOWNTIME if by themselves, should be matched with IDLE.
     idx = obs_status_messages.query("statusLabels == 'WEATHER'").index
     obs_status_messages.loc[idx, "statusLabels"] = "IDLE | WEATHER"
     idx = obs_status_messages.query("statusLabels == 'DOWNTIME'").index
@@ -689,9 +690,8 @@ def get_observatory_state_times(t_start: Time, t_end: Time, efd_client: InfluxQu
     idle["type"] = "IDLE"
     unknown = _obs_status_state_changes(obs_status_messages, "UNKNOWN")
     unknown["type"] = "UNKNOWN"
-    obs_status_periods = pd.concat([weather, downtime, fault, idle, unknown, operational]).sort_values(
-        "start", ignore_index=True
-    )
+    df_list = [df for df in [weather, downtime, fault, operational, idle, unknown] if not df.empty]
+    obs_status_periods = pd.concat(df_list).sort_values("start", ignore_index=True)
     return obs_status_periods
 
 

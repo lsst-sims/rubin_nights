@@ -74,7 +74,7 @@ def targets_and_visits(
 
     # Fetch and consolidate the nextVisits
     topic = "lsst.sal.ScriptQueue.logevent_nextVisit"
-    fields = ["scriptSalIndex", "groupId", "position0", "position1", "cameraAngle"]
+    fields = ["scriptSalIndex", "groupId", "position0", "position1", "cameraAngle", '"duration"']
     nextvisits = endpoints["efd"].select_time_series(topic, fields, t_start, t_end, index=queue_index)
     logger.debug(f"{len(nextvisits)} next visit events")
     if len(nextvisits) > 0:
