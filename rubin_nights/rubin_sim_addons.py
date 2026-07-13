@@ -6,7 +6,7 @@ import pandas as pd
 from astropy.time import Time
 
 try:
-    from rubin_sim.phot_utils import predicted_zeropoint
+    from rubin_sim.phot_utils import predicted_zeropoint, predicted_zeropoint_hardware
 
     HAS_RUBIN_SIM = True
 except ModuleNotFoundError:
@@ -142,17 +142,14 @@ def add_rubin_sim_cols(
             x["sky_bg_mag"] = np.nan
             return x
         # Calculate 1-s 1-e- zeropoints (measured and predicted)
-        x["zero_point_1s"] = x[zero_point_col] - 2.5 * np.log10(x.exp_time)
+        x["zero_point_1s"] = x[zero_point_col] - 2.5 * np.log10(x.shut_time)
         x["zero_point_1s_pred"] = (
             predicted_zeropoint(x.band, x.airmass, 1) + predicted_zeropoint_offsets[x.band]
         )
         # zp with hardware only would be the expected value for predicting
-        # sky counts
-        #  zp_sky = predicted_zeropoint_hardware(x.band, x.shut_time) +
-        #    predicted_zeropoint_offsets[x.band]
-        # but when converting from image measurements, probably
-        # should use measured zeropoint (including exposure time)
-        x["sky_bg_mag"] = -2.5 * np.log10(x[sky_col] / x.pixel_scale_est**2) + x[zero_point_col]
+        # sky counts and for converting sky in electrons to mag
+        zp_sky = predicted_zeropoint_hardware(x.band, x.shut_time) + predicted_zeropoint_offsets[x.band]
+        x["sky_bg_mag"] = -2.5 * np.log10(x[sky_col] / x.pixel_scale_est**2) + zp_sky
         return x
 
     visits = visits.apply(calc_predicted_zeropoints, axis=1)
