@@ -177,14 +177,17 @@ def get_clients(
     consdb_query = ConsDbFastAPI(api_base, auth)
     consdb_tap = ConsDbTap(api_base, token=token)
 
-    # In general: look for a usdf-<database> first in repertoire
-    # if it doesn't exist, then use local-<database>.
-    try:
-        # At the moment this will always fall back to segwarides + usdf_efd.
-        efd_client = InfluxQueryClient("usdf", db_name="efd", repertoire_site=site, auth=auth)
-        efd_client.get_topics()
-    except KeyError:
-        logger.warning(f"EFD service not available from USDF. Falling back to {site}.")
+    # Only redirect to usdf-<database> if we are at the summit
+    if site == "summit":
+        try:
+            efd_client = InfluxQueryClient("usdf", db_name="efd", repertoire_site=site, auth=auth)
+            efd_client.get_topics()
+        except KeyError:
+            # if the request fails, the connection may not exist
+            logger.warning(f"EFD service not available from USDF. Falling back to {site}.")
+            # then use local-<database>.
+            efd_client = InfluxQueryClient(site, db_name="efd", repertoire_site=site, auth=auth)
+    else:
         efd_client = InfluxQueryClient(site, db_name="efd", repertoire_site=site, auth=auth)
 
     # Connect to the databases which are not in repertoire yet
