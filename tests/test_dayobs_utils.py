@@ -114,22 +114,22 @@ class TestMjdToDayObs(unittest.TestCase):
     def test_mjd_during_night_gives_correct_day_obs(self) -> None:
         # MJD of midnight UTC during the 2025-05-03 night.
         midnight_mjd = Time("2025-05-04T00:00:00", format="isot", scale="tai").mjd
-        result = rn_dayobs.mjd_to_dayobs(midnight_mjd)
+        result = rn_dayobs.mjd_to_day_obs(midnight_mjd)
         self.assertEqual(result, DAY_OBS_INT)
 
     def test_mjd_at_noon_start_of_day_obs(self) -> None:
         # Noon TAI on the day_obs date is the start of that day_obs.
-        result = rn_dayobs.mjd_to_dayobs(DAY_OBS_TIME.mjd)
+        result = rn_dayobs.mjd_to_day_obs(DAY_OBS_TIME.mjd)
         self.assertEqual(result, DAY_OBS_INT)
 
     def test_mjd_just_before_noon_is_previous_day_obs(self) -> None:
         # 11:59 TAI on 2025-05-03 belongs to the previous night (2025-05-02).
         before_noon = Time("2025-05-03T11:59:00", format="isot", scale="tai").mjd
-        result = rn_dayobs.mjd_to_dayobs(before_noon)
+        result = rn_dayobs.mjd_to_day_obs(before_noon)
         self.assertEqual(result, 20250502)
 
     def test_mjd_returns_int(self) -> None:
-        self.assertIsInstance(rn_dayobs.mjd_to_dayobs(DAY_OBS_TIME.mjd), int)
+        self.assertIsInstance(rn_dayobs.mjd_to_day_obs(DAY_OBS_TIME.mjd), int)
 
 
 class TestDayObsList(unittest.TestCase):
