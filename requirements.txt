@@ -1,5 +1,5 @@
 astropy-base
-httpx
+httpx2
 matplotlib-base
 numpy
 pandas

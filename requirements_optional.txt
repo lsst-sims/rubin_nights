@@ -1,4 +1,4 @@
-rubin-scheduler >=3.18
+rubin-scheduler >=3.21
 rubin-sim
 black
 isort

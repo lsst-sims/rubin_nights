@@ -21,7 +21,7 @@ dynamic = [ "version" ]
 dependencies = [
     "astropy",
     "astroplan",
-    "httpx",
+    "httpx2",
     "matplotlib",
     "numpy",
     "pandas",
