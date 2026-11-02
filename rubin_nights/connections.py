@@ -180,14 +180,14 @@ def get_clients(
     # From the summit, we generally want to try USDF first for EFD
     if site == "summit":
         efd_client = InfluxQueryClient("usdf", db_name="efd", repertoire_site=site, auth=auth)
-        obsenv_client = InfluxQueryClient( "usdf", db_name="lsst.obsenv", repertoire_site=site, auth=auth)
+        obsenv_client = InfluxQueryClient("usdf", db_name="lsst.obsenv", repertoire_site=site, auth=auth)
         pp_client = InfluxQueryClient("usdf", db_name="lsst.prompt", repertoire_site=site, auth=auth)
         too_client = InfluxQueryClient("usdf", db_name="lsst.scimma", repertoire_site=site, auth=auth)
-        # And check that the connection is up and active by trying to fetch the topics.
+        # And check that the connection is up and active
         try:
             efd_client.get_topics()
         except KeyError:
-            logger.warning(f"EFD service not available from USDF. Falling back to summit.")
+            logger.warning("EFD service not available from USDF. Falling back to summit.")
         efd_client = InfluxQueryClient("summit", db_name="efd", repertoire_site=site, auth=auth)
         obsenv_client = InfluxQueryClient("summit", db_name="lsst.obsenv", repertoire_site=site, auth=auth)
         pp_client = InfluxQueryClient("summit", db_name="lsst.prompt", repertoire_site=site, auth=auth)
@@ -199,7 +199,6 @@ def get_clients(
         obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv", repertoire_site=site, auth=auth)
         pp_client = InfluxQueryClient(site, db_name="lsst.prompt", repertoire_site=site, auth=auth)
         too_client = InfluxQueryClient(site, db_name="lsst.scimma", repertoire_site=site, auth=auth)
-
 
     # Be extra helpful with environment variables if using USDF for LFA
     if "usdf" in site:
@@ -225,6 +224,7 @@ def get_clients(
     logger.info(f"Endpoint base url: {endpoints['api_base']}")
 
     return endpoints
+
 
 def usdf_s3_env() -> None:
     """Set convenient environment variables for USDF S3 use."""

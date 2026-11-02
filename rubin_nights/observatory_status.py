@@ -481,7 +481,9 @@ def get_obs_status_messages(t_start: Time, t_end: Time, efd_client: InfluxQueryC
     fields = ["status", "note", "statusLabels"]
     obs_status_messages: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end, index=1)
     # also fetch previous message, to capture incoming state.
-    prev_obs_status_messages : pd.DataFrame = efd_client.select_top_n(topic, fields, num=1, time_cut=t_start, index=1)
+    prev_obs_status_messages: pd.DataFrame = efd_client.select_top_n(
+        topic, fields, num=1, time_cut=t_start, index=1
+    )
     obs_status_messages = pd.concat([prev_obs_status_messages, obs_status_messages])
     # Add day_obs label.
     obs_status_messages["day_obs"] = day_obs_from_efd_index_array(obs_status_messages.index.to_series())
@@ -693,7 +695,9 @@ def get_observatory_state_times(t_start: Time, t_end: Time, efd_client: InfluxQu
     unknown["type"] = "UNKNOWN"
     df_list = [df for df in [weather, downtime, fault, operational, idle, unknown] if not df.empty]
     if len(df_list) == 0:
-        obs_status_periods = pd.DataFrame([], columns=["day_obs", "sunset12", "sunrise12", "start", "end", "hours"])
+        obs_status_periods = pd.DataFrame(
+            [], columns=["day_obs", "sunset12", "sunrise12", "start", "end", "hours"]
+        )
     else:
         obs_status_periods = pd.concat(df_list).sort_values("start", ignore_index=True)
     return obs_status_periods
@@ -711,7 +715,8 @@ def _count_contribution(x: pd.Series, obs_status_periods: pd.DataFrame) -> float
     # Downtime will override an exclusive state.
     # FAULT can coexist with other states, but we want to count as FAULT.
     downtime = obs_status_periods.query("type == 'DOWNTIME' and day_obs == @x.day_obs")
-    fault = obs_status_periods.query("type == 'FAULT' and day_obs == @x.day_obs")
+    # fault = obs_status_periods.query("type == 'FAULT' and "
+    #                                 "day_obs == @x.day_obs")
     if len(downtime) > 0:
         # Did this period end before (any) downtime on this dayobs started?
         # Or start after (any) downtime on this dayobs started?
@@ -731,6 +736,7 @@ def _count_contribution(x: pd.Series, obs_status_periods: pd.DataFrame) -> float
                     count_time -= (discount_end - discount_start) / pd.Timedelta(hours=1)
 
     return count_time
+
 
 def count_observatory_states(
     obs_status_periods: pd.DataFrame, dome_open: pd.DataFrame | None = None

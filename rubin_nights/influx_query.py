@@ -31,7 +31,6 @@ __all__ = [
 TZ_UTC = ZoneInfo("UTC")
 
 
-
 def day_obs_from_efd_index(x: pd.Series) -> int:
     """Use with pandas apply(efd_values, axis=1) to get dayobs.
 
@@ -65,7 +64,6 @@ def convert_time_to_tz_datetime(time: Time) -> datetime:
     as the EFD indexes are timezone-aware datetimes.
     """
     return time.to_datetime(timezone=TZ_UTC)
-
 
 
 class InfluxQueryClientBase:
@@ -124,7 +122,7 @@ class InfluxQueryClientBase:
         # this part is a guess (for the future).
         # self.influx_db += f"{db_name.lower().replace('lsst.', '')}"
         # At present, the only database listed in repertoire is 'efd'.
-        self.influx_db += f"efd"
+        self.influx_db += "efd"
 
         self.null_result = pd.DataFrame([])
 
@@ -150,8 +148,7 @@ class InfluxQueryClientBase:
             self.url, influx_auth = self._read_credentials_file(os.environ["EFDAUTH"])
         else:
             raise ValueError(
-                "No influx credentials available: provide auth "
-                "or influx_auth_file, or set EFDAUTH."
+                "No influx credentials available: provide auth or influx_auth_file, or set EFDAUTH."
             )
         self.timeout = httpx2.Timeout(query_timeout, connect=10.0)
         self.setup_client(influx_auth)
@@ -189,9 +186,7 @@ class InfluxQueryClientBase:
             The username and password for authentication to repertoire
             (RSP/gaefaelfwr token).
         """
-        creds_service = (
-            f"{API_ENDPOINTS[site]}/repertoire/discovery/influxdb"
-        )
+        creds_service = f"{API_ENDPOINTS[site]}/repertoire/discovery/influxdb"
         logger.debug(f"Attempting to fetch credentials from {creds_service}")
 
         try:

@@ -136,7 +136,7 @@ class TestInfluxQueryCredentials(unittest.TestCase):
         mock_get.assert_called_once_with(
             f"{API_ENDPOINTS['usdf']}/repertoire/discovery/influxdb", auth=REPERTOIRE_AUTH
         )
-        # Influx query client set up with the url and credentials from repertoire.
+        # Influx query client set up with the url and creds from repertoire.
         self.assertEqual(mock_client.call_args.kwargs["base_url"], FAKE_URL)
         self.assertEqual(mock_client.call_args.kwargs["auth"], ("user1", "pass1"))
 
