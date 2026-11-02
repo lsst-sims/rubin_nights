@@ -480,8 +480,9 @@ def get_obs_status_messages(t_start: Time, t_end: Time, efd_client: InfluxQueryC
     topic = "lsst.sal.Scheduler.logevent_observatoryStatus"
     fields = ["status", "note", "statusLabels"]
     obs_status_messages: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end, index=1)
-    if obs_status_messages.empty:
-        obs_status_messages = pd.DataFrame([], columns=["day_obs"] + fields)
+    # also fetch previous message, to capture incoming state.
+    prev_obs_status_messages : pd.DataFrame = efd_client.select_top_n(topic, fields, num=1, time_cut=t_start, index=1)
+    obs_status_messages = pd.concat([prev_obs_status_messages, obs_status_messages])
     # Add day_obs label.
     obs_status_messages["day_obs"] = day_obs_from_efd_index_array(obs_status_messages.index.to_series())
     # WEATHER or DOWNTIME if by themselves, should be matched with IDLE.
@@ -574,10 +575,10 @@ def _obs_status_state_changes(obs_status_messages: pd.DataFrame, status_type: st
             closure.append(
                 [
                     day_obs,
-                    sunset12.datetime,
-                    sunrise12.datetime,
-                    sunset12.datetime,
-                    sunrise12.datetime,
+                    sunset12.utc.datetime,
+                    sunrise12.utc.datetime,
+                    sunset12.utc.datetime,
+                    sunrise12.utc.datetime,
                     (sunrise12 - sunset12).jd * 24,
                 ]
             )
@@ -591,10 +592,10 @@ def _obs_status_state_changes(obs_status_messages: pd.DataFrame, status_type: st
                 closure.append(
                     [
                         day_obs,
-                        sunset12.datetime,
-                        sunrise12.datetime,
-                        sunset12.datetime,
-                        end.datetime,
+                        sunset12.utc.datetime,
+                        sunrise12.utc.datetime,
+                        sunset12.utc.datetime,
+                        end.utc.datetime,
                         (end - sunset12).jd * 24,
                     ]
                 )
@@ -611,10 +612,10 @@ def _obs_status_state_changes(obs_status_messages: pd.DataFrame, status_type: st
                 closure.append(
                     [
                         day_obs,
-                        sunset12.datetime,
-                        sunrise12.datetime,
-                        start.datetime,
-                        sunrise12.datetime,
+                        sunset12.utc.datetime,
+                        sunrise12.utc.datetime,
+                        start.utc.datetime,
+                        sunrise12.utc.datetime,
                         (sunrise12 - start).jd * 24,
                     ]
                 )
@@ -643,10 +644,10 @@ def _obs_status_state_changes(obs_status_messages: pd.DataFrame, status_type: st
                         closure.append(
                             [
                                 day_obs,
-                                sunset12.datetime,
-                                sunrise12.datetime,
-                                start_time.datetime,
-                                end_time.datetime,
+                                sunset12.utc.datetime,
+                                sunrise12.utc.datetime,
+                                start_time.utc.datetime,
+                                end_time.utc.datetime,
                                 (end_time - start_time).jd * 24,
                             ]
                         )
@@ -691,21 +692,26 @@ def get_observatory_state_times(t_start: Time, t_end: Time, efd_client: InfluxQu
     unknown = _obs_status_state_changes(obs_status_messages, "UNKNOWN")
     unknown["type"] = "UNKNOWN"
     df_list = [df for df in [weather, downtime, fault, operational, idle, unknown] if not df.empty]
-    obs_status_periods = pd.concat(df_list).sort_values("start", ignore_index=True)
+    if len(df_list) == 0:
+        obs_status_periods = pd.DataFrame([], columns=["day_obs", "sunset12", "sunrise12", "start", "end", "hours"])
+    else:
+        obs_status_periods = pd.concat(df_list).sort_values("start", ignore_index=True)
     return obs_status_periods
 
 
 def _count_contribution(x: pd.Series, obs_status_periods: pd.DataFrame) -> float:
     """Apply priorities to how to count periods of downtime."""
-    # Weather is always just weather and downtime trumps all.
+    # Weather is always just weather.
+    # Downtime trumps all other states (if in DOWNTIME, don't count fault).
     if x.type == "WEATHER" or x.type == "DOWNTIME":
         return x.hours
 
     count_time = x.hours
 
     # Downtime will override an exclusive state.
-    # Otherwise must just count up unknown, idle, fault, and operational.
+    # FAULT can coexist with other states, but we want to count as FAULT.
     downtime = obs_status_periods.query("type == 'DOWNTIME' and day_obs == @x.day_obs")
+    fault = obs_status_periods.query("type == 'FAULT' and day_obs == @x.day_obs")
     if len(downtime) > 0:
         # Did this period end before (any) downtime on this dayobs started?
         # Or start after (any) downtime on this dayobs started?
@@ -726,7 +732,6 @@ def _count_contribution(x: pd.Series, obs_status_periods: pd.DataFrame) -> float
 
     return count_time
 
-
 def count_observatory_states(
     obs_status_periods: pd.DataFrame, dome_open: pd.DataFrame | None = None
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -737,6 +742,8 @@ def count_observatory_states(
     Currently: this method only discounts 'fault' periods that occur
     during DOWNTIME.
     """
+    if obs_status_periods.empty:
+        return obs_status_periods, pd.DataFrame([])
     # Apply priorities for 'contributed' hours to downtime periods
     contributed_hours = obs_status_periods.apply(
         _count_contribution, obs_status_periods=obs_status_periods, axis=1
