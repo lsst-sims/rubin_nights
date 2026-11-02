@@ -7,7 +7,7 @@ from .influx_query import InfluxQueryClient
 from .logging_query import ExposureLogClient, NarrativeLogClient, NightReportClient
 from .reference_values import API_ENDPOINTS
 
-__all__ = ["get_access_token", "get_clients", "usdf_lfa"]
+__all__ = ["get_access_token", "get_clients", "usdf_s3_env", "usdf_lfa"]
 
 logger = logging.getLogger(__name__)
 
@@ -177,33 +177,34 @@ def get_clients(
     consdb_query = ConsDbFastAPI(api_base, auth)
     consdb_tap = ConsDbTap(api_base, token=token)
 
-    # In general: look for a usdf-<database> first in repertoire
-    # if it doesn't exist, then use local-<database>.
-    try:
-        # At the moment this will always fall back to segwarides + usdf_efd.
+    # From the summit, we generally want to try USDF first for EFD
+    if site == "summit":
         efd_client = InfluxQueryClient("usdf", db_name="efd", repertoire_site=site, auth=auth)
-        efd_client.get_topics()
-    except KeyError:
-        logger.warning(f"EFD service not available from USDF. Falling back to {site}.")
-        efd_client = InfluxQueryClient(site, db_name="efd", repertoire_site=site, auth=auth)
+        obsenv_client = InfluxQueryClient( "usdf", db_name="lsst.obsenv", repertoire_site=site, auth=auth)
+        pp_client = InfluxQueryClient("usdf", db_name="lsst.prompt", repertoire_site=site, auth=auth)
+        too_client = InfluxQueryClient("usdf", db_name="lsst.scimma", repertoire_site=site, auth=auth)
+        # And check that the connection is up and active by trying to fetch the topics.
+        try:
+            efd_client.get_topics()
+        except KeyError:
+            logger.warning(f"EFD service not available from USDF. Falling back to summit.")
+        efd_client = InfluxQueryClient("summit", db_name="efd", repertoire_site=site, auth=auth)
+        obsenv_client = InfluxQueryClient("summit", db_name="lsst.obsenv", repertoire_site=site, auth=auth)
+        pp_client = InfluxQueryClient("summit", db_name="lsst.prompt", repertoire_site=site, auth=auth)
+        too_client = InfluxQueryClient("summit", db_name="lsst.scimma", repertoire_site=site, auth=auth)
 
-    # Connect to the databases which are not in repertoire yet
-    # Obsenv not present on usdf-dev
-    if "usdf" in site:
-        obsenv_client = InfluxQueryClient("usdf", db_name="lsst.obsenv")
+    # Anywhere else, the site is generally the one to use.
     else:
-        obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv")
-    pp_client = InfluxQueryClient(site, db_name="lsst.prompt")
-    too_client = InfluxQueryClient("summit", db_name="lsst.scimma")
+        efd_client = InfluxQueryClient(site, db_name="efd", repertoire_site=site, auth=auth)
+        obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv", repertoire_site=site, auth=auth)
+        pp_client = InfluxQueryClient(site, db_name="lsst.prompt", repertoire_site=site, auth=auth)
+        too_client = InfluxQueryClient(site, db_name="lsst.scimma", repertoire_site=site, auth=auth)
+
 
     # Be extra helpful with environment variables if using USDF for LFA
     if "usdf" in site:
-        # And some env variables for S3 through USDF
-        if os.environ.get("LSST_DISABLE_BUCKET_VALIDATION") is None:
-            os.environ["LSST_DISABLE_BUCKET_VALIDATION"] = "1"
-        if os.environ.get("S3_ENDPOINT_URL") is None:
-            os.environ["S3_ENDPOINT_URL"] = "https://s3dfrgw.slac.stanford.edu/"
-    # Or if you're actually using one of the USDF RSPs (or kubernetes)
+        usdf_s3_env()
+    # And if you're actually using one of the USDF RSPs (or kubernetes):
     if "usdf" in os.getenv("EXTERNAL_INSTANCE_URL", ""):
         if os.getenv("RUBIN_SIM_DATA_DIR") is None:
             # Use shared RUBIN_SIM_DATA_DIR
@@ -224,6 +225,14 @@ def get_clients(
     logger.info(f"Endpoint base url: {endpoints['api_base']}")
 
     return endpoints
+
+def usdf_s3_env() -> None:
+    """Set convenient environment variables for USDF S3 use."""
+    # And some env variables for S3 through USDF
+    if os.environ.get("LSST_DISABLE_BUCKET_VALIDATION") is None:
+        os.environ["LSST_DISABLE_BUCKET_VALIDATION"] = "1"
+    if os.environ.get("S3_ENDPOINT_URL") is None:
+        os.environ["S3_ENDPOINT_URL"] = "https://s3dfrgw.slac.stanford.edu/"
 
 
 def usdf_lfa(uri: str, bucket: str = "s3://lfa@") -> str:
