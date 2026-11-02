@@ -3,7 +3,6 @@ import unittest
 from pathlib import Path
 
 import rubin_nights.connections as connections
-from rubin_nights.reference_values import API_ENDPOINTS
 
 IN_CI = os.getenv("CI") == "true"
 
@@ -87,6 +86,7 @@ class TestConnections(unittest.TestCase):
         for var in env_vars:
             if current_vars[var] is not None:
                 os.environ[var] = current_vars[var]
+
 
 if __name__ == "__main__":
     unittest.main()
