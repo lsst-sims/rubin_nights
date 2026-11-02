@@ -3,7 +3,7 @@ import re
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-import httpx
+import httpx2
 import numpy as np
 import pandas as pd
 from astropy.time import Time, TimeDelta
@@ -50,9 +50,9 @@ class LoggingServiceClient:
     def __init__(self, url: str, auth: tuple, results_as_dataframe: bool = True):
         self.url = url
         self.results_as_dataframe = results_as_dataframe
-        timeout = httpx.Timeout(120, connect=30)
-        self.httpx_client = httpx.Client(timeout=timeout, auth=auth)
-        self.async_client = httpx.AsyncClient(timeout=timeout, auth=auth)
+        timeout = httpx2.Timeout(120, connect=30)
+        self.httpx_client = httpx2.Client(timeout=timeout, auth=auth)
+        self.async_client = httpx2.AsyncClient(timeout=timeout, auth=auth)
 
     def __repr__(self) -> str:
         return self.url
@@ -88,9 +88,9 @@ class LoggingServiceClient:
             try:
                 response = self.httpx_client.get(self.url, params=params)
                 response.raise_for_status()
-            except httpx.RequestError as exc:
+            except httpx2.RequestError as exc:
                 logger.warning(f"An error occurred while requesting {exc.request.url!r}.")
-            except httpx.HTTPStatusError as exc:
+            except httpx2.HTTPStatusError as exc:
                 logger.warning(
                     f"Error response {exc.response.status_code} while requesting {exc.request.url!r}."
                 )
@@ -126,9 +126,9 @@ class LoggingServiceClient:
             try:
                 response = await self.async_client.get(self.url, params=params)
                 response.raise_for_status()
-            except httpx.RequestError as exc:
+            except httpx2.RequestError as exc:
                 logger.warning(f"An error occurred while requesting {exc.request.url!r}.")
-            except httpx.HTTPStatusError as exc:
+            except httpx2.HTTPStatusError as exc:
                 logger.warning(
                     f"Error response {exc.response.status_code} while requesting {exc.request.url!r}."
                 )
@@ -552,15 +552,11 @@ class ExposureLogClient(LoggingServiceClient):
     """
 
     def __init__(self, api_base: str, auth: tuple):
-        url = api_base + "/exposurelog/messages"
+        url = api_base + "/exposurelog"
+        self.base_url = url
+        self.message_url = url + "/messages"
+        self.exposure_url = url + "/exposures"
         super().__init__(url=url, auth=auth, results_as_dataframe=True)
-
-    # Override base query for clearer return typing
-    def query(self, params: dict[str, Any]) -> pd.DataFrame:
-        """Override to narrow the return type to list only."""
-        result = super().query(params=params)
-        assert isinstance(result, pd.DataFrame), "Expected DataFrame but got list"
-        return result
 
     async def async_query(self, params: dict[str, Any]) -> pd.DataFrame:
         """Override to narrow the return type to list only."""
@@ -569,8 +565,8 @@ class ExposureLogClient(LoggingServiceClient):
         return result
 
     @staticmethod
-    def query_params(t_start: Time, t_end: Time, user_params: dict | None = None) -> dict[str, Any]:
-        """Set query parameters for exposure log query.
+    def query_message_params(t_start: Time, t_end: Time, user_params: dict | None = None) -> dict[str, Any]:
+        """Set query parameters for exposure log query for messages.
 
         Parameters
         ----------
@@ -595,18 +591,63 @@ class ExposureLogClient(LoggingServiceClient):
         of the exposure itself directly. Thus t_start and t_end are translated
         to less specific min_day_obs_min and max_day_obs for the query.
         """
-        log_limit = 50000
-
         params = {
             "is_human": "either",
             "is_valid": "true",
             "min_day_obs": int(t_start.tai.isot.split("T")[0].replace("-", "")),
             "max_day_obs": int(t_end.tai.isot.split("T")[0].replace("-", "")),
-            "limit": log_limit,
+            "limit": 50000,
         }
         if user_params is not None:
             params.update(user_params)
         return params
+
+    @staticmethod
+    def query_exposure_params(t_start: Time, t_end: Time, user_params: dict | None = None) -> dict[str, Any]:
+        """Set query parameters for exposure log query for messages.
+
+        Parameters
+        ----------
+        t_start
+            Time of start of exposure log query.
+            This is translated to min_date for the query.
+        t_end
+            Time of end of exposure log query.
+            This is translated to max_date for the query.
+        user_params
+            Additional parameters to add or override defaults.
+            Passing `{'limit': int}` will override the default limit.
+            The default `instrument` is LSSTCam.
+
+        Returns
+        -------
+        params : `dict`
+        """
+        params = {
+            "min_date": t_start.tai.isot,
+            "max_date": t_end.tai.isot,
+            "instrument": "LSSTCam",
+            "limit": 50000,
+        }
+        if user_params is not None:
+            params.update(user_params)
+        return params
+
+    # Override base query for clearer return typing
+    def message_query(self, params: dict[str, Any]) -> pd.DataFrame:
+        """Override to narrow the return type to list only."""
+        self.url = self.message_url
+        result = super().query(params=params)
+        assert isinstance(result, pd.DataFrame), "Expected DataFrame but got list"
+        return result
+
+    # Override base query for clearer return typing
+    def exposure_query(self, params: dict[str, Any]) -> pd.DataFrame:
+        """Override to narrow the return type to list only."""
+        self.url = self.exposure_url
+        result = super().query(params=params)
+        assert isinstance(result, pd.DataFrame), "Expected DataFrame but got list"
+        return result
 
     def query_log(self, t_start: Time, t_end: Time, user_params: dict | None = None) -> pd.DataFrame:
         """Get exposure log message entries over a specified timespan.
@@ -614,9 +655,9 @@ class ExposureLogClient(LoggingServiceClient):
         Parameters
         ----------
         t_start
-            Time of start of exposure log query.
+            Time of start of exposure log message query.
         t_end
-            Time of end of exposure log query.
+            Time of end of exposure log message query.
         user_params
             Additional parameters to add or override defaults.
             Passing `{'limit': int}` can override the default limit.
@@ -626,13 +667,37 @@ class ExposureLogClient(LoggingServiceClient):
         messages : `pd.DataFrame`
             Exposure log messages.
         """
-        params = self.query_params(t_start=t_start, t_end=t_end, user_params=user_params)
-
-        messages = self.query(params=params)
+        params = self.query_message_params(t_start=t_start, t_end=t_end, user_params=user_params)
+        messages = self.message_query(params=params)
         if len(messages) == params["limit"]:
             logger.warning(f"Exposure log messages hit log_limit ({params['limit']})")
 
         return messages
+
+    def query_exposures(self, t_start: Time, t_end: Time, user_params: dict | None = None) -> pd.DataFrame:
+        """Get exposure records over a specified timespan.
+
+        Parameters
+        ----------
+        t_start
+            Time of start of exposure log exposure query.
+        t_end
+            Time of end of exposure log exposure query.
+        user_params
+            Additional parameters to add or override defaults.
+            Passing `{'limit': int}` can override the default limit.
+
+        Returns
+        -------
+        exposures : `pd.DataFrame`
+            Exposure log.
+        """
+        params = self.query_exposure_params(t_start=t_start, t_end=t_end, user_params=user_params)
+        exposures = self.exposure_query(params=params)
+        if len(exposures) == params["limit"]:
+            logger.warning(f"Exposure log messages hit log_limit ({params['limit']})")
+
+        return exposures
 
     async def async_query_log(
         self, t_start: Time, t_end: Time, user_params: dict | None = None
