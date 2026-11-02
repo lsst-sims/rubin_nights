@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import getpass
+import json
 import logging
+import os
 from datetime import datetime
+from pathlib import Path
 from types import TracebackType
 from typing import Optional, Type
 from zoneinfo import ZoneInfo
 
-import httpx
+import httpx2
 import numpy as np
 import pandas as pd
 from astropy.time import Time
@@ -27,15 +30,13 @@ __all__ = [
 
 TZ_UTC = ZoneInfo("UTC")
 
-# Quiet all warnings and errors related to repertoire vs segwarides
-REPERTOIRE_DEV = True
 
 
 def day_obs_from_efd_index(x: pd.Series) -> int:
     """Use with pandas apply(efd_values, axis=1) to get dayobs.
 
     To be deprecated:
-    Use day_obs_from_efd_index_series for faster conversion and safety
+    Use day_obs_from_efd_index_array for faster conversion and safety
     in case of zero-length dataframes.
     """
     dayobs_time = Time(np.floor(Time(x.name, scale="utc").tai.mjd - 0.5), format="mjd", scale="tai")
@@ -66,9 +67,6 @@ def convert_time_to_tz_datetime(time: Time) -> datetime:
     return time.to_datetime(timezone=TZ_UTC)
 
 
-class RepertoireCredsError(Exception):
-    pass
-
 
 class InfluxQueryClientBase:
     """Base class for sync and async InfluxDb client.
@@ -77,23 +75,25 @@ class InfluxQueryClientBase:
     ----------
     site
         The site to use for the influx db, e.g. usdf, summit, base.
-        Note that influxdb sites can be special: e.g. currently
-        the EFD at USDF is only on usdf-rsp (usdf, not -dev) and
-        the creds for the EFD at USDF are also served at summit.
     db_name
         The database to query.
         Default is "efd".
     repertoire_site
-        The site to use for repertoire discovery for influx credentials.
+        The site to use for repertoire discovery for influx credentials -
+        must match one of the keys of the API_ENDPOINTS dictionary.
         Does not necessarily have to be the same as 'site' for the
         influx db itself, but should match the auth token.
         If None, will match 'site'.
     auth
         The username and password for authentication to repertoire.
-        Note that *repertoire* auth is site-specific, even though
-        influx databases can be only available at one site (thus you may
-        need cross-site authentication). Also only usdf-rsp currently works.
-        If None, will fallback to segwarides.
+        Note that *repertoire* auth is site-specific.
+    influx_auth_file
+        Path to a JSON file containing a mapping of aliases (e.g. "usdf_efd")
+        to InfluxDB connection information, in the format returned by the
+        repertoire /influxdb endpoint (including "url", "username" and
+        "password"). Used only if `repertoire_auth` is None.
+        If this is also None, the EFDAUTH environment variable is checked
+        for the path to such a file (to match the lsst_efd_client option).
     id_tag
         Add the service name or user name as a comment to the query.
         This aids in tracking query sources in EFD logs.
@@ -108,24 +108,23 @@ class InfluxQueryClientBase:
         db_name: str = "efd",
         repertoire_site: str | None = None,
         auth: tuple | None = None,
+        influx_auth_file: str | Path | None = None,
         id_tag: str | None = None,
         query_timeout: float = 5 * 60,
     ) -> None:
 
-        # Site should match general user-expectations and keys in API_ENDPOINTS
+        # Location of influx database (usdf, usdf-dev, summit, etc).
         self.site = site.lower()
-        # db_name is the identifier when sending query params to the RESTAPI
-        # Will be used in gathering credentials from repertoire (probably?)
+        # db_name is the database identifier when sending query.
         self.db_name = db_name
-        # influx_db will be the name in repertoire for the influxdb.
-        self.influx_db = f"{self.site.replace('-', '')}" + "_"
-        # this part is a guess...
-        self.influx_db += f"{db_name.lower().replace('lsst.', '')}"
 
-        if repertoire_site is None:
-            self.repertoire_site = self.site
-        else:
-            self.repertoire_site = repertoire_site
+        # influx_db will match the name in repertoire for the influxdb.
+        # Note that usdf-dev is labelled usdfdev for influx_db.
+        self.influx_db = f"{self.site.replace('-', '')}" + "_"
+        # this part is a guess (for the future).
+        # self.influx_db += f"{db_name.lower().replace('lsst.', '')}"
+        # At present, the only database listed in repertoire is 'efd'.
+        self.influx_db += f"efd"
 
         self.null_result = pd.DataFrame([])
 
@@ -137,83 +136,88 @@ class InfluxQueryClientBase:
         self.last_query = "No query issued yet."
         self.topics = [""]
 
-    def _fetch_credentials(self, auth: tuple | None = None) -> tuple[str, bytes]:
-        # Fetch the influxdb credentials.
+        # Resolve the influx url and credentials.
+        # First: fetch the credentials from repertoire.
         if auth is not None:
-            try:
-                self.url, influx_auth = self._fetch_credentials_repertoire(auth)
-            except RepertoireCredsError:
-                if not REPERTOIRE_DEV:
-                    logger.warning("Failed to fetch credentials from repertoire. Trying segwarides.")
-                self.url, influx_auth = self._fetch_credentials_segwarides()
+            if repertoire_site is None:
+                repertoire_site = self.site
+            self.url, influx_auth = self._fetch_credentials(repertoire_site, auth)
+        # Second: an explicit auth file.
+        elif influx_auth_file is not None:
+            self.url, influx_auth = self._read_credentials_file(influx_auth_file)
+        # Last: the EFDAUTH environment variable.
+        elif os.getenv("EFDAUTH"):
+            self.url, influx_auth = self._read_credentials_file(os.environ["EFDAUTH"])
         else:
-            if not REPERTOIRE_DEV:
-                logger.warning(
-                    "Fetching influx credentials from segwarides "
-                    "will soon be deprecated. Please add an auth token. "
-                )
-            self.url, influx_auth = self._fetch_credentials_segwarides()
-        return influx_auth
+            raise ValueError(
+                "No influx credentials available: provide auth "
+                "or influx_auth_file, or set EFDAUTH."
+            )
+        self.timeout = httpx2.Timeout(query_timeout, connect=10.0)
+        self.setup_client(influx_auth)
 
-    def _fetch_credentials_repertoire(self, auth: tuple) -> tuple[str, tuple[str, bytes]]:
+    def _read_credentials_file(self, auth_file: str | Path) -> tuple[str, tuple[str, str]]:
+        """Read the influx credentials for `self.influx_db` from a JSON file.
+
+        Parameters
+        ----------
+        auth_file
+            Path to a JSON file mapping aliases (such as "usdf_efd") to
+            InfluxDB connection information, as returned by repertoire.
+        """
+        auth_path = Path(auth_file)
+        auth_data = json.loads(auth_path.read_text())
+        auth_creds = auth_data.get(self.influx_db)
+        if not auth_creds:
+            raise ValueError(
+                f"No credentials available for {self.influx_db} in {auth_path}. "
+                f"Available keys: {list(auth_data.keys())}"
+            )
+        auth = (auth_creds["username"], auth_creds["password"])
+        logger.info(f"Read credentials for {self.influx_db} from {auth_path}.")
+        self.creds_from = f"file @ {auth_path}"
+        return auth_creds["url"], auth
+
+    def _fetch_credentials(self, site: str, auth: tuple) -> tuple[str, tuple[str, str]]:
         """Fetch the credentials via repertoire.
 
         Parameters
         ----------
+        site
+            The repertoire site to query (must match auth token).
         auth
             The username and password for authentication to repertoire
             (RSP/gaefaelfwr token).
         """
         creds_service = (
-            f"{API_ENDPOINTS[self.repertoire_site]}/repertoire/discovery/influxdb/{self.influx_db}"
+            f"{API_ENDPOINTS[site]}/repertoire/discovery/influxdb"
         )
         logger.debug(f"Attempting to fetch credentials from {creds_service}")
 
         try:
-            with httpx.Client() as client:
+            with httpx2.Client() as client:
                 response = client.get(creds_service, auth=auth)
                 response.raise_for_status()
-        except Exception as e:
-            logger.debug(e)
-            if not REPERTOIRE_DEV:
-                logger.error(f"Could not fetch credentials from repertoire at {creds_service}.")
-            else:
-                logger.debug(f"Could not fetch credentials from repertoire at {creds_service}.")
-            raise RepertoireCredsError
+        except (httpx2.HTTPStatusError, httpx2.RequestError) as exc:
+            logger.error(f"Could not reach repertoire discovery at {creds_service}.")
+            raise exc
 
         # Parse the influx db credentials.
         try:
             influx_creds = response.json()
-        except Exception as e:
-            logger.debug(e)
+        except Exception as exc:
             logger.error(f"Could not parse credentials from repertoire at {creds_service}.")
-            raise RepertoireCredsError
+            raise exc
 
-        auth = (influx_creds["username"], influx_creds["password"])
-        url = influx_creds["url"]
+        # There could be multiple options - find self.influx_db
+        if self.influx_db not in influx_creds:
+            raise ValueError(f"No credentials available for {self.influx_db}.")
+
+        db_creds = influx_creds[self.influx_db]
+        auth = (db_creds["username"], db_creds["password"])
+        url = db_creds["url"]
         logger.info(f"Fetched credentials from repertoire for {self.influx_db}.")
-        self.creds_from = "repertoire"
-        return url, auth
-
-    def _fetch_credentials_segwarides(self) -> tuple[str, tuple[str, bytes]]:
-        "Fetch the credentials via segwarides (to be deprecated)."
-        creds_service = f"https://roundtable.lsst.codes/segwarides/creds/{self.site.replace('-', '')}_efd"
-        try:
-            with httpx.Client() as client:
-                response = client.get(creds_service)
-                response.raise_for_status()
-        except Exception as e:
-            logger.error(
-                f"Could not fetch credentials from segwarides for {self.influx_db} using {creds_service}."
-            )
-            logger.error(e)
-            raise e
-        # Parse the creds.
-        logger.info(f"Fetched credentials from segwarides for {self.influx_db}.")
-        influx_creds = response.json()
-        auth = (influx_creds["username"], influx_creds["password"])
-        url = "https://" + influx_creds["host"] + influx_creds["path"].rstrip("/")
-        self.creds_from = "segwarides"
+        self.creds_from = f"repertoire @ {site}"
         return url, auth
 
     def __repr__(self) -> str:
@@ -432,6 +436,7 @@ class InfluxQueryClient(InfluxQueryClientBase):
         self,
         site: str = "usdf",
         db_name: str = "efd",
+        influx_auth_file: str | Path | None = None,
         repertoire_site: str | None = None,
         auth: tuple | None = None,
         id_tag: str | None = None,
@@ -441,14 +446,14 @@ class InfluxQueryClient(InfluxQueryClientBase):
             site=site,
             db_name=db_name,
             repertoire_site=repertoire_site,
-            auth=None,
+            auth=auth,
+            influx_auth_file=influx_auth_file,
             id_tag=id_tag,
             query_timeout=query_timeout,
         )
-        # Set up connections to influx database RestAPI endpoint.
-        influx_auth = self._fetch_credentials(auth)
-        timeout = httpx.Timeout(query_timeout, connect=10.0)
-        self.httpx_client = httpx.Client(base_url=self.url, timeout=timeout, auth=influx_auth)
+
+    def setup_client(self, influx_auth: tuple[str, str]) -> None:
+        self.httpx_client = httpx2.Client(base_url=self.url, timeout=self.timeout, auth=influx_auth)
 
     def close(self) -> None:
         self.httpx_client.close()
@@ -607,6 +612,7 @@ class AsyncInfluxQueryClient(InfluxQueryClientBase):
         self,
         site: str = "usdf",
         db_name: str = "efd",
+        influx_auth_file: str | Path | None = None,
         repertoire_site: str | None = None,
         auth: tuple | None = None,
         id_tag: str | None = None,
@@ -616,14 +622,14 @@ class AsyncInfluxQueryClient(InfluxQueryClientBase):
             site=site,
             db_name=db_name,
             repertoire_site=repertoire_site,
-            auth=None,
+            auth=auth,
+            influx_auth_file=influx_auth_file,
             id_tag=id_tag,
             query_timeout=query_timeout,
         )
-        # Set up connections to influx database RestAPI endpoint.
-        influx_auth = self._fetch_credentials(auth)
-        timeout = httpx.Timeout(query_timeout, connect=10.0)
-        self.async_client = httpx.AsyncClient(base_url=self.url, timeout=timeout, auth=influx_auth)
+
+    def setup_client(self, influx_auth: tuple[str, str]) -> None:
+        self.async_client = httpx2.AsyncClient(base_url=self.url, timeout=self.timeout, auth=influx_auth)
 
     async def aclose(self) -> None:
         await self.async_client.aclose()
