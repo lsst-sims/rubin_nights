@@ -1,11 +1,13 @@
 import datetime
 import functools
+import logging
 
 import astropy.units as u
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from astroplan import Observer
+from astropy.coordinates import EarthLocation
 from astropy.coordinates.errors import UnknownSiteException
 from astropy.time import Time, TimeDelta
 
@@ -19,14 +21,24 @@ __all__ = [
     "day_obs_int_to_str",
     "day_obs_to_date",
     "day_obs_to_time",
-    "mjd_to_dayobs",
-    "mjd_to_dayobs_array",
+    "mjd_to_day_obs",
+    "mjd_to_day_obs_array",
     "day_obs_list",
     "rubin_observer",
     "day_obs_sunset_sunrise",
     "day_obs_sunset_sunrise_df",
     "estimated_baseline_visit_range",
 ]
+
+logger = logging.getLogger(__name__)
+
+# Location of the Simonyi Survey Telescope, matching the "rubin" entry
+# in astropy's sites.json. Used if the site registry cannot be loaded.
+RUBIN_LOCATION = EarthLocation.from_geodetic(
+    lon=-70.74941666666666 * u.deg,
+    lat=-30.244633333333333 * u.deg,
+    height=2662.75 * u.m,
+)
 
 
 def today_day_obs() -> str:
@@ -83,7 +95,7 @@ def day_obs_to_time(day_obs: int | str) -> Time:
         return Time(f"{day_obs}T12:00:00", format="isot", scale="tai")
 
 
-def mjd_to_dayobs(mjd: float) -> int:
+def mjd_to_day_obs(mjd: float) -> int:
     """Convert MJD to day_obs integer YYYYMMDD.
     Deprecated and will be removed.
 
@@ -108,7 +120,7 @@ def mjd_to_dayobs(mjd: float) -> int:
     return day_obs_str_to_int(mjdfloor.isot.split("T")[0])
 
 
-def mjd_to_dayobs_array(mjd: npt.ArrayLike) -> npt.NDArray[np.int_]:
+def mjd_to_day_obs_array(mjd: npt.ArrayLike) -> npt.NDArray[np.int_]:
     """Convert MJD to day_obs integer YYYYMMDD, as an array.
 
     Parameters
@@ -144,11 +156,17 @@ def day_obs_list(t_start: Time, t_end: Time) -> list[int]:
 
 @functools.cache
 def rubin_observer() -> Observer:
+    """Return an astroplan Observer at the Rubin site.
+
+    Uses astropy's site registry when available; if "Rubin" is unknown
+    (old astropy installs) or the registry cannot be downloaded
+    (offline or restricted network), falls back to RUBIN_LOCATION.
+    """
     try:
         observer = Observer.at_site("Rubin")
-    except UnknownSiteException:
-        # Better to use Rubin, but old astropy installs might not have it.
-        observer = Observer.at_site("Cerro Pachon")
+    except (UnknownSiteException, OSError) as exc:
+        logger.warning(f"Could not load Rubin from astropy site registry ({exc}); using built-in location.")
+        observer = Observer(location=RUBIN_LOCATION, name="Rubin", timezone="Chile/Continental")
     return observer
 
 
