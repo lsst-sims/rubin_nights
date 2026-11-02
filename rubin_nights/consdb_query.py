@@ -7,7 +7,7 @@ from json import JSONDecodeError
 from types import TracebackType
 from typing import Optional, Type
 
-import httpx
+import httpx2
 import numpy as np
 import pandas as pd
 import pyvo
@@ -245,9 +245,9 @@ class ConsDbFastAPI(ConsDb):
     # This may be slightly faster without F5 load balancer packet checking.
     def __init__(self, api_base: str, auth: tuple, query_timeout: float = 10 * 60) -> None:
         self.base_url = api_base + "/consdb"
-        timeout = httpx.Timeout(timeout=query_timeout, connect=60.0)
-        transport = httpx.HTTPTransport(retries=2)
-        self.httpx_client = httpx.Client(
+        timeout = httpx2.Timeout(timeout=query_timeout, connect=60.0)
+        transport = httpx2.HTTPTransport(retries=2)
+        self.httpx_client = httpx2.Client(
             base_url=self.base_url, timeout=timeout, transport=transport, auth=auth
         )
 
@@ -301,13 +301,13 @@ class ConsDbFastAPI(ConsDb):
                     error_message += " A common issue might be using a single % for wildcards, instead of %%."
                     logger.error(error_message)
             response.raise_for_status()
-        except httpx.RequestError as exc:
+        except httpx2.RequestError as exc:
             error_message = f"An error occurred while requesting {exc.request.url!r}.\n"
             error_message += (
                 f"Error at UTC time " f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}"
             )
             logger.error(error_message)
-        except httpx.HTTPStatusError as exc:
+        except httpx2.HTTPStatusError as exc:
             # This might be a problem with the server closing the connection
             # Or it might be a problem with the sql query.
             # All messages from the database are in the response.
@@ -356,9 +356,9 @@ class AsyncConsDbFastAPI(ConsDb):
     # This may be slightly faster without F5 load balancer packet checking.
     def __init__(self, api_base: str, auth: tuple, query_timeout: float = 10 * 60) -> None:
         self.base_url = api_base + "/consdb"
-        timeout = httpx.Timeout(timeout=query_timeout, connect=60.0)
-        atransport = httpx.AsyncHTTPTransport(retries=2)
-        self.async_client = httpx.AsyncClient(
+        timeout = httpx2.Timeout(timeout=query_timeout, connect=60.0)
+        atransport = httpx2.AsyncHTTPTransport(retries=2)
+        self.async_client = httpx2.AsyncClient(
             base_url=self.base_url, timeout=timeout, transport=atransport, auth=auth
         )
 
@@ -405,13 +405,13 @@ class AsyncConsDbFastAPI(ConsDb):
                     )
                     response = await self.async_client.post("/query", json=params)
             response.raise_for_status()
-        except httpx.RequestError as exc:
+        except httpx2.RequestError as exc:
             error_message = f"An error occurred while requesting {exc.request.url!r}.\n"
             error_message += (
                 f"Error at UTC time " f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}"
             )
             logger.error(error_message)
-        except httpx.HTTPStatusError as exc:
+        except httpx2.HTTPStatusError as exc:
             # This might be a problem with the server closing the connection
             # Or it might be a problem with the sql query.
             # All messages from the database are in the response.
