@@ -180,7 +180,7 @@ def get_clients(
     # Only redirect to usdf-<database> if we are at the summit
     if site == "summit":
         try:
-            efd_client = InfluxQueryClient("usdf", db_name="efd", repertoire_site=site, auth=auth)
+            efd_client = InfluxQueryClient("usdf", db_name="efd", repertoire_site="usdf", auth=auth)
             efd_client.get_topics()
         except KeyError:
             # if the request fails, the connection may not exist
@@ -191,11 +191,18 @@ def get_clients(
         efd_client = InfluxQueryClient(site, db_name="efd", repertoire_site=site, auth=auth)
 
     # Connect to the databases which are not in repertoire yet
-    # Obsenv not present on usdf-dev
-    if "usdf" in site:
-        obsenv_client = InfluxQueryClient("usdf", db_name="lsst.obsenv")
+    # Obsenv not present on usdf-dev, or summit
+    if site == "summit" or site == "usdf-dev":
+        try:
+            obsenv_client = InfluxQueryClient("usdf", db_name="lsst.obsenv", repertoire_site="usdf")
+            obsenv_client.get_topics()
+        except KeyError:
+            # if the request fails, the connection may not exist
+            logger.warning(f"ObsEnv service not available from USDF. Falling back to {site}.")
+            obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv")
     else:
         obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv")
+
     pp_client = InfluxQueryClient(site, db_name="lsst.prompt")
     too_client = InfluxQueryClient("summit", db_name="lsst.scimma")
 
