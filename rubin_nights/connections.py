@@ -177,7 +177,7 @@ def get_clients(
     consdb_query = ConsDbFastAPI(api_base, auth)
     consdb_tap = ConsDbTap(api_base, token=token)
 
-    # Only redirect to usdf-<database> if we are at the summit
+    # Only redirect to usdf-<database> if we are at the summit or usdf-dev
     if site == "summit":
         try:
             efd_client = InfluxQueryClient("usdf", db_name="efd", repertoire_site="usdf", auth=auth)
@@ -187,6 +187,9 @@ def get_clients(
             logger.warning(f"EFD service not available from USDF. Falling back to {site}.")
             # then use local-<database>.
             efd_client = InfluxQueryClient(site, db_name="efd", repertoire_site=site, auth=auth)
+    elif site == "usdf-dev":
+        # no influxdb efd at usdf-dev, don't try/except bc there's no fallback
+        efd_client = InfluxQueryClient("usdf", db_name="efd", repertoire_site="usdf", auth=auth)
     else:
         efd_client = InfluxQueryClient(site, db_name="efd", repertoire_site=site, auth=auth)
 
