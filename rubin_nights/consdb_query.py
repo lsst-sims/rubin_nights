@@ -26,7 +26,7 @@ from .augment_visits import augment_visits
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["ConsDbTap", "ConsDbFastAPI", "ConsDbSql"]
+__all__ = ["ConsDbTap", "ConsDbFastAPI", "AsyncConsDbFastAPI", "ConsDbSql"]
 
 
 class ConsDb:
@@ -239,10 +239,6 @@ class ConsDbFastAPI(ConsDb):
         Seconds to wait for the query to return data.
 
     """
-
-    # From within the USDF RSP, you could also use
-    # http://consdb-pq.consdb:8080/ for the ConsDB api_base.
-    # This may be slightly faster without F5 load balancer packet checking.
     def __init__(self, api_base: str, auth: tuple, query_timeout: float = 10 * 60) -> None:
         self.base_url = api_base + "/consdb"
         timeout = httpx2.Timeout(timeout=query_timeout, connect=60.0)
@@ -350,10 +346,6 @@ class AsyncConsDbFastAPI(ConsDb):
         Seconds to wait for the query to return data.
 
     """
-
-    # From within the USDF RSP, you could also use
-    # http://consdb-pq.consdb:8080/ for the ConsDB api_base.
-    # This may be slightly faster without F5 load balancer packet checking.
     def __init__(self, api_base: str, auth: tuple, query_timeout: float = 10 * 60) -> None:
         self.base_url = api_base + "/consdb"
         timeout = httpx2.Timeout(timeout=query_timeout, connect=60.0)
