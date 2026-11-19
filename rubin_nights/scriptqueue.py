@@ -135,12 +135,12 @@ def get_scheduler_configs(
                 bad_conf,
                 columns=["time"] + fields + ["config_repo", "config_commit", "config_yaml"],
             )
-            conf.set_index("time", inplace=True)
+            conf = conf.set_index("time")
             conf.index = cast(pd.DatetimeIndex, conf.index).tz_localize("UTC")
         conf["classname"] = "Scheduler configuration"
 
         conf["description"] = conf.apply(build_link_to_config, axis=1)
-        conf.rename({"configurations": "config"}, axis=1, inplace=True)
+        conf = conf.rename({"configurations": "config"}, axis=1)
         conf["script_salIndex"] = -1
 
         # Scheduler dependency information - updated independently of obsenv.
@@ -165,7 +165,7 @@ def get_scheduler_configs(
             logger.warning("Could not find scheduler dependencies.")
             bad_deps = [t_start.utc.datetime] + ["unknown" for f in fields]
             deps = pd.DataFrame(bad_deps, columns=["time"] + fields)
-            deps.set_index("time", inplace=True)
+            deps = deps.set_index("time")
             deps.index = cast(pd.DatetimeIndex, deps.index).tz_localize("UTC")
 
         # Reconfigure output to fit into script_status fields
@@ -209,7 +209,7 @@ def get_scheduler_configs(
         bad_obsenv0 = [(t_start - TimeDelta(1, format="mjd") * 3).utc.datetime] + ["unknown" for f in fields]
         bad_obsenv1 = [t_start.utc.datetime] + ["unknown" for f in fields]
         obsenv = pd.DataFrame([bad_obsenv0, bad_obsenv1], columns=["time"] + fields)
-        obsenv.set_index("time", inplace=True)
+        obsenv = obsenv.set_index("time")
         obsenv.index = cast(pd.DatetimeIndex, obsenv.index).tz_localize("UTC")
 
     # Label whether it was an obsenv *update* (i.e. changed ts_config_ocs, etc)
@@ -241,8 +241,8 @@ def get_scheduler_configs(
     # Drop columns, add timestamps and state
     cols = ["classname", "description", "config", "salIndex", "script_salIndex"]
     drop_cols = [c for c in sched_config.columns if c not in cols]
-    sched_config.drop(drop_cols, axis=1, inplace=True)
-    sched_config.sort_index(inplace=True)
+    sched_config = sched_config.drop(drop_cols, axis=1)
+    sched_config = sched_config.sort_index()
     sched_config["timestampProcessStart"] = (
         cast(pd.DatetimeIndex, sched_config.index.copy()).tz_localize(None).astype("datetime64[ns]")
     )
@@ -280,8 +280,8 @@ def get_script_stream(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
     topic = "lsst.sal.Script.logevent_description"
     fields = ["classname", "description", "salIndex"]
     scriptdescription: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
-    scriptdescription.rename(
-        {"salIndex": "script_salIndex", "classname": "script_name"}, axis=1, inplace=True
+    scriptdescription = scriptdescription.rename(
+        {"salIndex": "script_salIndex", "classname": "script_name"}, axis=1
     )
 
     # This gets us more information about the script parameters,
@@ -290,7 +290,7 @@ def get_script_stream(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
     fields = ["blockId", "config", " executionId", "salIndex"]
     # note blockId is only filled for JSON BLOCK activities
     scriptconfig: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
-    scriptconfig.rename({"salIndex": "script_salIndex"}, axis=1, inplace=True)
+    scriptconfig = scriptconfig.rename({"salIndex": "script_salIndex"}, axis=1)
 
     # Merge these together on script_salIndex which is unique over tinterval
     # Found that (command_configure - script description) index time is
@@ -356,7 +356,7 @@ def get_script_state(
     # Providing an integer salIndex will restrict this query to a single queue,
     # but None will query all queues.
     scripts: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end, index=queue_index)
-    scripts.rename({"scriptSalIndex": "script_salIndex"}, axis=1, inplace=True)
+    scripts = scripts.rename({"scriptSalIndex": "script_salIndex"}, axis=1)
     if len(scripts) == 0:
         logger.info(f"Found 0 script events in {t_start.utc.iso} to {t_end.utc.iso}.")
         script_status = pd.DataFrame([])
@@ -530,7 +530,7 @@ def get_script_status(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
         # Convert to a single dataframe
         script_status = pd.concat(script_status_list, axis=0, sort=True).sort_index()
     # Modify path to classname here, to match other definintions
-    script_status.rename({"path": "classname"}, axis=1, inplace=True)
+    script_status = script_status.rename({"path": "classname"}, axis=1)
 
     logger.info(f"Found {len(script_status)} script status messages")
 
@@ -561,7 +561,7 @@ def get_script_status(t_start: Time, t_end: Time, efd_client: InfluxQueryClient)
         # place for runtime / image acquisition, etc
         script_status.index = script_status.apply(_find_best_script_time, axis=1)
         script_status.index = cast(pd.DatetimeIndex, script_status.index).tz_localize("UTC")
-        script_status.sort_index(inplace=True)
+        script_status = script_status.sort_index()
     return script_status
 
 
@@ -589,7 +589,7 @@ def get_scriptqueue_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQue
     traceback_messages: pd.DataFrame = efd_client.query(query)
     # Then check if there are any *traceback* messages to query.
     if len(traceback_messages) > 0:
-        traceback_messages.rename({"salIndex": "script_salIndex"}, axis=1, inplace=True)
+        traceback_messages = traceback_messages.rename({"salIndex": "script_salIndex"}, axis=1)
 
         # Add salIndex of queue where the script was run
         traceback_messages["salIndex"] = traceback_messages.apply(queue_from_script_salindex, axis=1)
@@ -603,7 +603,7 @@ def get_scriptqueue_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQue
             cast(pd.DatetimeIndex, traceback_messages.index.copy()).tz_localize(None).astype("datetime64[ns]")
         )
     # Going to rename some of these columns here to slot into scriptqueue
-    traceback_messages.rename({"traceback": "description", "message": "classname"}, axis=1, inplace=True)
+    traceback_messages = traceback_messages.rename({"traceback": "description", "message": "classname"}, axis=1)
     return traceback_messages
 
 
@@ -643,7 +643,7 @@ def get_all_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQueryClient
             category_index = CategoryIndexExtended.ERRORS_OTHER.value
 
         if len(traceback_messages) > 0:
-            traceback_messages.rename({"name": "topic"}, axis=1, inplace=True)
+            traceback_messages = traceback_messages.rename({"name": "topic"}, axis=1)
             traceback_messages["category_index"] = category_index
             traceback_messages["config"] = f"{csc} traceback"
 
@@ -658,7 +658,7 @@ def get_all_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQueryClient
             cast(pd.DatetimeIndex, traceback_messages.index.copy()).tz_localize(None).astype("datetime64[ns]")
         )
     # Going to rename some of these columns here to slot into scriptqueue
-    traceback_messages.rename({"traceback": "description", "message": "name"}, axis=1, inplace=True)
+    traceback_messages = traceback_messages.rename({"traceback": "description", "message": "name"}, axis=1)
 
     cols_back = [
         "name",
@@ -793,15 +793,15 @@ def get_narrative_and_errors(
 
         messages["finalStatus"] = messages.apply(build_status, axis=1)
         messages["user_id"] = messages.apply(strip_user_id_at_part, axis=1)
-        messages.rename(
-            {"component": "name", "user_id": "config", "message_text": "description"}, axis=1, inplace=True
+        messages = messages.rename(
+            {"component": "name", "user_id": "config", "message_text": "description"}, axis=1
         )
     logger.info(f"Found {len(messages)} messages in the narrative log")
 
     # Add ObservatoryStatus from lsst.sal.Scheduler.logevent_observatoryStatus
     obs_status_messages: pd.DataFrame = get_obs_status_messages(t_start, t_end, efd_client)
-    obs_status_messages.rename(
-        {"note": "description", "statusLabels": "name", "status": "script_salIndex"}, axis=1, inplace=True
+    obs_status_messages = obs_status_messages.rename(
+        {"note": "description", "statusLabels": "name", "status": "script_salIndex"}, axis=1
     )
     obs_status_messages["category_index"] = CategoryIndexExtended.OBSERVATORY_STATUS_SIMONYI.value
     obs_status_messages["config"] = "LOVE"
@@ -826,10 +826,9 @@ def get_narrative_and_errors(
         )
     if len(errs) > 0:
         # Rename some columns to match narrative log columns
-        errs.rename(
+        errs = errs.rename(
             {"errorCode": "script_salIndex", "errorReport": "description"},
             axis=1,
-            inplace=True,
         )
 
     # Tracebacks (non-scriptqueue)
@@ -973,7 +972,7 @@ def get_exposure_info(
         # Set the time for the exposure log barely after the image start time
         exp_log_image_time = exp["timestampAcquisitionStart"] + EPS_TIME
         exp_logs["img_time"] = exp_log_image_time
-        exp_logs.set_index("img_time", inplace=True)
+        exp_logs = exp_logs.set_index("img_time")
         exp_logs.index = cast(pd.DatetimeIndex, exp_logs.index).tz_localize("UTC")
         # Assign the exposure logs to the associated narrative log index
         exp_logs["category_index"] = CategoryIndexExtended.NARRATIVE_LOG_OTHER.value
@@ -983,7 +982,7 @@ def get_exposure_info(
         exp_logs.loc[idx, "category_index"] = CategoryIndexExtended.NARRATIVE_LOG_AUX.value
         exp_logs["script_salIndex"] = 0
         # Rename some columns in the exposure log to consolidate here
-        exp_logs.rename(
+        exp_logs = exp_logs.rename(
             {
                 "obs_id": "imageName",
                 "user_id": "config",
@@ -991,7 +990,6 @@ def get_exposure_info(
                 "exposure_flag": "finalStatus",
             },
             axis=1,
-            inplace=True,
         )
         idx = exp_logs.query("finalStatus == 'none'").index
         exp_logs.loc[idx, "finalStatus"] = ""
@@ -1061,10 +1059,9 @@ def get_consolidated_messages(
     script_status = pd.concat(
         [scheduler_configs, script_status, script_tracebacks], axis=0, sort=True
     ).sort_index()
-    script_status.rename(
+    script_status = script_status.rename(
         {"salIndex": "category_index", "classname": "name", "finalScriptState": "finalStatus"},
         axis=1,
-        inplace=True,
     )
 
     # columns from narrative and errors
@@ -1087,7 +1084,7 @@ def get_consolidated_messages(
     # image_cols = ['imageName', 'additionalValues', 'config', 'finalStatus',
     # 'script_salIndex', 'salIndex', 'timestampAcquisitionStart',
     # 'timestampDateObs', 'timestampDateEnd']
-    image_and_logs.rename(
+    image_and_logs = image_and_logs.rename(
         {
             "imageName": "name",
             "additionalValues": "description",
@@ -1096,7 +1093,6 @@ def get_consolidated_messages(
             "timestampDateEnd": "timestampProcessEnd",
         },
         axis=1,
-        inplace=True,
     )
 
     df_list = [script_status, narrative_and_errs, image_and_logs]
@@ -1115,7 +1111,7 @@ def get_consolidated_messages(
         block_names.loc[idx, "salIndex"] = CategoryIndexExtended.AUTOLOG_SIMONYI.value
         idx = block_names.query("salIndex == 2").index
         block_names.loc[idx, "salIndex"] = CategoryIndexExtended.AUTOLOG_AUX.value
-        block_names.rename({"salIndex": "category_index"}, axis=1, inplace=True)
+        block_names = block_names.rename({"salIndex": "category_index"}, axis=1)
     # Find the FBS setup and starts
     mt_fbs_resume_times = efd_and_messages.query("name == 'MTSchedulerResume'")
     at_fbs_resume_times = efd_and_messages.query("name == 'ATSchedulerResume'")
@@ -1153,7 +1149,7 @@ def get_consolidated_messages(
         # Note that we could also have images and events running from scripts.
         # .. but I don't know how to track these.
         task_changes = task_changes.sort_index()
-        task_changes.rename({"id": "name"}, axis=1, inplace=True)
+        task_changes = task_changes.rename({"id": "name"}, axis=1)
         task_changes["script_salIndex"] = -1
         task_changes["finalStatus"] = "Task Change"
         task_changes["config"] = ""
@@ -1168,8 +1164,8 @@ def get_consolidated_messages(
 
     # use an integer index, which makes it easier to pull up values
     # plus avoids occasional failures of time uniqueness
-    efd_and_messages.reset_index(drop=False, inplace=True)
-    efd_and_messages.rename({"index": "time"}, axis=1, inplace=True)
+    efd_and_messages = efd_and_messages.reset_index(drop=False)
+    efd_and_messages = efd_and_messages.rename({"index": "time"}, axis=1)
 
     logger.info(f"Total combined messages {len(efd_and_messages)}")
 

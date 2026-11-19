@@ -219,7 +219,7 @@ def _fastapi_to_pandas(messages: dict) -> pd.DataFrame:
         newcols[i] = newcols[i] + "_duplicate"
     # Have to change only some instances of the duplicates
     results.columns = newcols
-    results.drop(results.columns[indices], axis=1, inplace=True)
+    results = results.drop(results.columns[indices], axis=1)
     return results
 
 

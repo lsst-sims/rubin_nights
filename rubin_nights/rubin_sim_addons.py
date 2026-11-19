@@ -18,8 +18,7 @@ from rubin_nights.reference_values import (
     ZEROPOINT_OFFSETS_LSSTCOMCAM,
 )
 
-# TODO import from rubin_scheduler instead
-SURVEY_START = Time("2025-11-01T12:00:00", scale="tai")
+from rubin_scheduler.utils import SURVEY_START_MJD
 
 __all__ = ["add_rubin_sim_cols", "consdb_to_opsim"]
 
@@ -116,7 +115,7 @@ def add_rubin_sim_cols(
     else:
         for n in new_cols:
             if n in visits.columns:
-                visits.drop(labels=n, axis=1, inplace=True)
+                visits = visits.drop(labels=n, axis=1)
 
     visits = visits.merge(new_df, right_index=True, left_index=True)
 
@@ -244,7 +243,8 @@ def consdb_to_opsim(consdb_visits: pd.DataFrame) -> pd.DataFrame | None:
     # copy "scheduler_note" to "note" for obs playback at 3.21.0
     # Add a 'night' column aligning with the current default for opsim.
     nexp = np.ones(len(opsim_visits))
-    night = np.floor((Time(opsim_visits["observationStartMJD"], format="mjd", scale="tai") - SURVEY_START).jd)
+    night = np.floor((Time(opsim_visits["observationStartMJD"], format="mjd", scale="tai")
+                      - Time(SURVEY_START_MJD, format="mjd", scale="tai")).jd)
     target_id = np.arange(0, len(opsim_visits), 1)
     dd = pd.DataFrame(
         {"numExposures": nexp, "night": night, "target_id": target_id}, index=opsim_visits.index

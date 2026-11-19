@@ -155,7 +155,7 @@ def add_rubin_scheduler_cols(
 
         for col in seeing_df.columns:
             if col in visits.columns:
-                visits.drop(labels=col, axis=1, inplace=True)
+                visits = visits.drop(labels=col, axis=1)
 
         visits = visits.merge(seeing_df, right_index=True, left_index=True)
 
@@ -207,7 +207,7 @@ def add_rubin_scheduler_cols(
 
     for n in new_df.columns:
         if n in visits.columns:
-            visits.drop(labels=n, axis=1, inplace=True)
+            visits = visits.drop(labels=n, axis=1)
 
     visits = visits.merge(new_df, right_index=True, left_index=True)
     return visits
