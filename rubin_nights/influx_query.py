@@ -511,7 +511,11 @@ class InfluxQueryClient(InfluxQueryClientBase):
         """Find all available topics."""
         if self.topics == [""]:
             r = self.query("show measurements")
-            self.topics = list(r["name"].values)
+            if "name" in r:
+                self.topics = list(r["name"].values)
+            else:
+                self.topics = [""]
+                raise ValueError(f"No topics found in {self.db_name}.")
         return self.topics
 
     def get_fields(self, measurement: str) -> pd.DataFrame:
