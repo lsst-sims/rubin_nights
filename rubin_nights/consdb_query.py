@@ -239,6 +239,7 @@ class ConsDbFastAPI(ConsDb):
         Seconds to wait for the query to return data.
 
     """
+
     def __init__(self, api_base: str, auth: tuple, query_timeout: float = 10 * 60) -> None:
         self.base_url = api_base + "/consdb"
         timeout = httpx2.Timeout(timeout=query_timeout, connect=60.0)
@@ -346,6 +347,7 @@ class AsyncConsDbFastAPI(ConsDb):
         Seconds to wait for the query to return data.
 
     """
+
     def __init__(self, api_base: str, auth: tuple, query_timeout: float = 10 * 60) -> None:
         self.base_url = api_base + "/consdb"
         timeout = httpx2.Timeout(timeout=query_timeout, connect=60.0)

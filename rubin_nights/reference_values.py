@@ -20,8 +20,16 @@ BAD_VISITS_LSSTCOMCAM = (
 )
 
 # Current FBS science programs
-SCIENCE_PROGRAMS = ("BLOCK-365", "BLOCK-407", "BLOCK-408", "BLOCK-416",
-                    "BLOCK-417", "BLOCK-419", "BLOCK-421", "BLOCK-430")
+SCIENCE_PROGRAMS = (
+    "BLOCK-365",
+    "BLOCK-407",
+    "BLOCK-408",
+    "BLOCK-416",
+    "BLOCK-417",
+    "BLOCK-419",
+    "BLOCK-421",
+    "BLOCK-430",
+)
 
 # Approximate pixel scale
 PLATESCALE: float = 0.2

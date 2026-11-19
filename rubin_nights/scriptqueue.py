@@ -603,7 +603,9 @@ def get_scriptqueue_tracebacks(t_start: Time, t_end: Time, efd_client: InfluxQue
             cast(pd.DatetimeIndex, traceback_messages.index.copy()).tz_localize(None).astype("datetime64[ns]")
         )
     # Going to rename some of these columns here to slot into scriptqueue
-    traceback_messages = traceback_messages.rename({"traceback": "description", "message": "classname"}, axis=1)
+    traceback_messages = traceback_messages.rename(
+        {"traceback": "description", "message": "classname"}, axis=1
+    )
     return traceback_messages
 
 

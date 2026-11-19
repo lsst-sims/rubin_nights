@@ -1,6 +1,7 @@
 import logging
 import re
-from typing import Any, Literal
+from types import TracebackType
+from typing import Any, Literal, Optional, Self, Type
 from urllib.parse import urlparse
 
 import httpx2
@@ -10,8 +11,13 @@ from astropy.time import Time, TimeDelta
 
 from .dayobs_utils import day_obs_to_time
 
-__all__ = ["NightReportClient", "NarrativeLogClient", "AsyncNarrativeLogClient",
-           "ExposureLogClient", "AsyncExposureLogClient"]
+__all__ = [
+    "NightReportClient",
+    "NarrativeLogClient",
+    "AsyncNarrativeLogClient",
+    "ExposureLogClient",
+    "AsyncExposureLogClient",
+]
 
 
 logger = logging.getLogger(__name__)
@@ -61,7 +67,7 @@ class LoggingServiceClient:
         """Close sync connection client."""
         self.httpx_client.close()
 
-    def __enter__(self) -> LoggingServiceClient:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(
@@ -138,7 +144,7 @@ class AsyncLoggingServiceClient:
         """Close async connection client."""
         await self.async_client.aclose()
 
-    async def __aenter__(self) -> AsyncLoggingServiceClient:
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(
@@ -148,7 +154,6 @@ class AsyncLoggingServiceClient:
         exc_tb: Optional[TracebackType],
     ) -> None:
         await self.aclose()
-
 
     async def query(self, params: dict) -> list[dict] | pd.DataFrame:
         """Execute async query to logging services API, for any params.
@@ -205,9 +210,6 @@ class NightReportClient(LoggingServiceClient):
     def __init__(self, api_base: str, auth: tuple) -> None:
         url = api_base + "/nightreport/reports"
         super().__init__(url=url, auth=auth, results_as_dataframe=False)
-
-    def __enter__(self) -> NightReportClient:
-        return self
 
     # Override base query for clearer return typing
     def query(self, params: dict[str, Any]) -> list[dict[Any, Any]]:
@@ -351,9 +353,9 @@ class NightReportClient(LoggingServiceClient):
         return html
 
 
-class NarrativeLogBase():
-    """Base class just to hold static methods for sync and async NarrativeLog.
-    """
+class NarrativeLogBase:
+    """Base class to hold static methods for sync and async NarrativeLog."""
+
     @staticmethod
     def query_params(t_start: Time, t_end: Time, user_params: dict | None = None) -> dict[str, Any]:
         """Set query parameters for narrative log query.
@@ -438,6 +440,7 @@ class NarrativeLogBase():
         messages["component"] = messages.apply(simplify_log, args=(key,), axis=1)
         return messages
 
+
 class NarrativeLogClient(LoggingServiceClient, NarrativeLogBase):
     """Query for the narrative log.
 
@@ -453,9 +456,6 @@ class NarrativeLogClient(LoggingServiceClient, NarrativeLogBase):
     def __init__(self, api_base: str, auth: tuple) -> None:
         url = api_base + "/narrativelog/messages"
         super().__init__(url=url, auth=auth, results_as_dataframe=True)
-
-    def __enter__(self) -> "NarrativeLogClient":
-        return self
 
     # Override base query for clearer return typing
     def query(self, params: dict[str, Any]) -> pd.DataFrame:
@@ -516,9 +516,6 @@ class AsyncNarrativeLogClient(AsyncLoggingServiceClient, NarrativeLogBase):
         url = api_base + "/narrativelog/messages"
         super().__init__(url=url, auth=auth, results_as_dataframe=True)
 
-    async def __aenter__(self) -> AsyncNarrativeLogClient:
-        return self
-
     async def query(self, params: dict[str, Any]) -> pd.DataFrame:
         """Override to narrow the return type to list only."""
         result = await super().query(params=params)
@@ -563,10 +560,9 @@ class AsyncNarrativeLogClient(AsyncLoggingServiceClient, NarrativeLogBase):
         return messages
 
 
+class ExposureLogBase:
+    """Base class to hold static methods for sync, async client."""
 
-class ExposureLogBase():
-    """Base class to hold static methods for sync, async client.
-    """
     @staticmethod
     def query_message_params(t_start: Time, t_end: Time, user_params: dict | None = None) -> dict[str, Any]:
         """Set query parameters for exposure log query for messages.
@@ -638,96 +634,93 @@ class ExposureLogBase():
 
 
 class ExposureLogClient(LoggingServiceClient, ExposureLogBase):
-        """Query for the exposure log.
+    """Query for the exposure log.
+
+    Parameters
+    ----------
+    api_base
+        Base API for services.
+        e.g. https://usdf-rsp.slac.stanford.edu
+    auth
+        The username and password for authentication.
+    """
+
+    def __init__(self, api_base: str, auth: tuple):
+        url = api_base + "/exposurelog"
+        self.base_url = url
+        self.message_url = url + "/messages"
+        self.exposure_url = url + "/exposures"
+        super().__init__(url=url, auth=auth, results_as_dataframe=True)
+
+    def query(self, params: dict[str, Any]) -> pd.DataFrame:
+        """Override to narrow the return type to list only."""
+        result = super().query(params=params)
+        assert isinstance(result, pd.DataFrame), "Expected DataFrame but got list"
+        return result
+
+    # Override base query for clearer return typing
+    def message_query(self, params: dict[str, Any]) -> pd.DataFrame:
+        """Override to narrow the return type to list only."""
+        self.url = self.message_url
+        result = self.query(params=params)
+        return result
+
+    # Override base query for clearer return typing
+    def exposure_query(self, params: dict[str, Any]) -> pd.DataFrame:
+        """Override to narrow the return type to list only."""
+        self.url = self.exposure_url
+        result = self.query(params=params)
+        return result
+
+    def query_log(self, t_start: Time, t_end: Time, user_params: dict | None = None) -> pd.DataFrame:
+        """Get exposure log message entries over a specified timespan.
 
         Parameters
         ----------
-        api_base
-            Base API for services.
-            e.g. https://usdf-rsp.slac.stanford.edu
-        auth
-            The username and password for authentication.
+        t_start
+            Time of start of exposure log message query.
+        t_end
+            Time of end of exposure log message query.
+        user_params
+            Additional parameters to add or override defaults.
+            Passing `{'limit': int}` can override the default limit.
+
+        Returns
+        -------
+        messages : `pd.DataFrame`
+            Exposure log messages.
         """
+        params = self.query_message_params(t_start=t_start, t_end=t_end, user_params=user_params)
+        messages = self.message_query(params=params)
+        if len(messages) == params["limit"]:
+            logger.warning(f"Exposure log messages hit log_limit ({params['limit']})")
 
-        def __init__(self, api_base: str, auth: tuple):
-            url = api_base + "/exposurelog"
-            self.base_url = url
-            self.message_url = url + "/messages"
-            self.exposure_url = url + "/exposures"
-            super().__init__(url=url, auth=auth, results_as_dataframe=True)
+        return messages
 
-        def __enter__(self) -> ExposureLogClient:
-            return self
+    def query_exposures(self, t_start: Time, t_end: Time, user_params: dict | None = None) -> pd.DataFrame:
+        """Get exposure records over a specified timespan.
 
-        def query(self, params: dict[str, Any]) -> pd.DataFrame:
-            """Override to narrow the return type to list only."""
-            result = super().query(params=params)
-            assert isinstance(result, pd.DataFrame), "Expected DataFrame but got list"
-            return result
+        Parameters
+        ----------
+        t_start
+            Time of start of exposure log exposure query.
+        t_end
+            Time of end of exposure log exposure query.
+        user_params
+            Additional parameters to add or override defaults.
+            Passing `{'limit': int}` can override the default limit.
 
-        # Override base query for clearer return typing
-        def message_query(self, params: dict[str, Any]) -> pd.DataFrame:
-            """Override to narrow the return type to list only."""
-            self.url = self.message_url
-            result = self.query(params=params)
-            return result
+        Returns
+        -------
+        exposures : `pd.DataFrame`
+            Exposure log.
+        """
+        params = self.query_exposure_params(t_start=t_start, t_end=t_end, user_params=user_params)
+        exposures = self.exposure_query(params=params)
+        if len(exposures) == params["limit"]:
+            logger.warning(f"Exposure log messages hit log_limit ({params['limit']})")
 
-        # Override base query for clearer return typing
-        def exposure_query(self, params: dict[str, Any]) -> pd.DataFrame:
-            """Override to narrow the return type to list only."""
-            self.url = self.exposure_url
-            result = self.query(params=params)
-            return result
-
-        def query_log(self, t_start: Time, t_end: Time, user_params: dict | None = None) -> pd.DataFrame:
-            """Get exposure log message entries over a specified timespan.
-
-            Parameters
-            ----------
-            t_start
-                Time of start of exposure log message query.
-            t_end
-                Time of end of exposure log message query.
-            user_params
-                Additional parameters to add or override defaults.
-                Passing `{'limit': int}` can override the default limit.
-
-            Returns
-            -------
-            messages : `pd.DataFrame`
-                Exposure log messages.
-            """
-            params = self.query_message_params(t_start=t_start, t_end=t_end, user_params=user_params)
-            messages = self.message_query(params=params)
-            if len(messages) == params["limit"]:
-                logger.warning(f"Exposure log messages hit log_limit ({params['limit']})")
-
-            return messages
-
-        def query_exposures(self, t_start: Time, t_end: Time, user_params: dict | None = None) -> pd.DataFrame:
-            """Get exposure records over a specified timespan.
-
-            Parameters
-            ----------
-            t_start
-                Time of start of exposure log exposure query.
-            t_end
-                Time of end of exposure log exposure query.
-            user_params
-                Additional parameters to add or override defaults.
-                Passing `{'limit': int}` can override the default limit.
-
-            Returns
-            -------
-            exposures : `pd.DataFrame`
-                Exposure log.
-            """
-            params = self.query_exposure_params(t_start=t_start, t_end=t_end, user_params=user_params)
-            exposures = self.exposure_query(params=params)
-            if len(exposures) == params["limit"]:
-                logger.warning(f"Exposure log messages hit log_limit ({params['limit']})")
-
-            return exposures
+        return exposures
 
 
 class AsyncExposureLogClient(AsyncLoggingServiceClient, ExposureLogBase):
@@ -749,15 +742,11 @@ class AsyncExposureLogClient(AsyncLoggingServiceClient, ExposureLogBase):
         self.exposure_url = url + "/exposures"
         super().__init__(url=url, auth=auth, results_as_dataframe=True)
 
-    async def __aenter__(self) -> AsyncExposureLogClient:
-        return self
-
     async def query(self, params: dict[str, Any]) -> pd.DataFrame:
         """Override to narrow the return type to list only."""
         result = await super().query(params=params)
         assert isinstance(result, pd.DataFrame), "Expected DataFrame but got list"
         return result
-
 
     # Override base query for clearer return typing
     async def message_query(self, params: dict[str, Any]) -> pd.DataFrame:
@@ -798,7 +787,9 @@ class AsyncExposureLogClient(AsyncLoggingServiceClient, ExposureLogBase):
 
         return messages
 
-    async def query_exposures(self, t_start: Time, t_end: Time, user_params: dict | None = None) -> pd.DataFrame:
+    async def query_exposures(
+        self, t_start: Time, t_end: Time, user_params: dict | None = None
+    ) -> pd.DataFrame:
         """Get exposure records over a specified timespan.
 
         Parameters
@@ -822,5 +813,3 @@ class AsyncExposureLogClient(AsyncLoggingServiceClient, ExposureLogBase):
             logger.warning(f"Exposure log messages hit log_limit ({params['limit']})")
 
         return exposures
-
-

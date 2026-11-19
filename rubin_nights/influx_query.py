@@ -153,6 +153,10 @@ class InfluxQueryClientBase:
         self.timeout = httpx2.Timeout(query_timeout, connect=10.0)
         self.setup_client(influx_auth)
 
+    def setup_client(self, influx_auth: tuple[str, str]) -> None:
+        """Override in the specific sync or async class."""
+        raise NotImplementedError
+
     def _read_credentials_file(self, auth_file: str | Path) -> tuple[str, tuple[str, str]]:
         """Read the influx credentials for `self.influx_db` from a JSON file.
 

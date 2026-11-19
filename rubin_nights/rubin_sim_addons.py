@@ -12,13 +12,13 @@ try:
 except ModuleNotFoundError:
     HAS_RUBIN_SIM = False
 
+from rubin_scheduler.utils import SURVEY_START_MJD
+
 from rubin_nights.reference_values import (
     PLATESCALE,
     ZEROPOINT_OFFSETS_LSSTCAM,
     ZEROPOINT_OFFSETS_LSSTCOMCAM,
 )
-
-from rubin_scheduler.utils import SURVEY_START_MJD
 
 __all__ = ["add_rubin_sim_cols", "consdb_to_opsim"]
 
@@ -243,8 +243,12 @@ def consdb_to_opsim(consdb_visits: pd.DataFrame) -> pd.DataFrame | None:
     # copy "scheduler_note" to "note" for obs playback at 3.21.0
     # Add a 'night' column aligning with the current default for opsim.
     nexp = np.ones(len(opsim_visits))
-    night = np.floor((Time(opsim_visits["observationStartMJD"], format="mjd", scale="tai")
-                      - Time(SURVEY_START_MJD, format="mjd", scale="tai")).jd)
+    night = np.floor(
+        (
+            Time(opsim_visits["observationStartMJD"], format="mjd", scale="tai")
+            - Time(SURVEY_START_MJD, format="mjd", scale="tai")
+        ).jd
+    )
     target_id = np.arange(0, len(opsim_visits), 1)
     dd = pd.DataFrame(
         {"numExposures": nexp, "night": night, "target_id": target_id}, index=opsim_visits.index
