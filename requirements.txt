@@ -4,5 +4,7 @@ matplotlib-base
 numpy
 pandas
 pyvo
+rubin-scheduler
+rubin-sim
 yaml
 lsst-ts-xml

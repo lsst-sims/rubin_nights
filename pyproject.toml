@@ -27,6 +27,8 @@ dependencies = [
     "pandas",
     "pyvo",
     "pyyaml",
+    "rubin-scheduler>3.18",
+    "rubin-sim",
 ]
 
 [project.optional-dependencies]
@@ -34,8 +36,6 @@ rubin = [
     "healpy",
     "lsst-resources",
     "psycopg",
-    "rubin-scheduler>=3.18",
-    "rubin-sim",
     "sqlalchemy",
     #"ts_xml@git+https://github.com/lsst-ts/ts_xml.git"
 ]
