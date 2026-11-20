@@ -82,14 +82,14 @@ class InfluxQueryClientBase:
         Does not necessarily have to be the same as 'site' for the
         influx db itself, but should match the auth token.
         If None, will match 'site'.
-    auth
-        The username and password for authentication to repertoire.
+    auth_token
+        The auth token to use for authentication to repertoire.
         Note that *repertoire* auth is site-specific.
     influx_auth_file
         Path to a JSON file containing a mapping of aliases (e.g. "usdf_efd")
         to InfluxDB connection information, in the format returned by the
         repertoire /influxdb endpoint (including "url", "username" and
-        "password"). Used only if `repertoire_auth` is None.
+        "password"). Used only if `auth_token` is None.
         If this is also None, the EFDAUTH environment variable is checked
         for the path to such a file (to match the lsst_efd_client option).
     id_tag
@@ -98,6 +98,25 @@ class InfluxQueryClientBase:
         If None, will be set to username.
     query_timeout
         Time (in seconds) to wait for query to return.
+
+    Notes
+    -----
+    For clarity on the authentication situation:
+    The InfluxDB's authentication credentials are most typically retrieved
+    from repertoire at the `repetoire_site` using `auth_token` to authenticate.
+    If the `auth_token` is none, then the credentials can be read from
+    `influx_auth_file` which should basically be a download of the
+    repertoire information.
+    If `influx_auth_file` is also None, the EFDAUTH environment variable
+    could point to the path for such a file.
+    If repertoire cannot be reached or repertoire auth_token is incorrect,
+    an https error will be raised indicating the issue.
+    If none backup file-based methods succeed to get authentication,
+    a ValueError will be raised indicating no credentials could be found.
+    After this point, the connection to the influxDb itself could fail,
+    which will presently only be indicated by a NameError raised
+    when retrieving the topics; this is the same fault as an empty influxDb
+    produces. A future update will separate these possible issues.
     """
 
     def __init__(
@@ -105,7 +124,7 @@ class InfluxQueryClientBase:
         site: str = "usdf",
         db_name: str = "efd",
         repertoire_site: str | None = None,
-        auth: tuple | None = None,
+        auth_token: tuple | None = None,
         influx_auth_file: str | Path | None = None,
         id_tag: str | None = None,
         query_timeout: float = 5 * 60,
@@ -136,10 +155,10 @@ class InfluxQueryClientBase:
 
         # Resolve the influx url and credentials.
         # First: fetch the credentials from repertoire.
-        if auth is not None:
+        if auth_token is not None:
             if repertoire_site is None:
                 repertoire_site = self.site
-            self.url, influx_auth = self._fetch_credentials(repertoire_site, auth)
+            self.url, influx_auth = self._fetch_credentials(repertoire_site, auth_token)
         # Second: an explicit auth file.
         elif influx_auth_file is not None:
             self.url, influx_auth = self._read_credentials_file(influx_auth_file)
@@ -179,23 +198,23 @@ class InfluxQueryClientBase:
         self.creds_from = f"file @ {auth_path}"
         return auth_creds["url"], auth
 
-    def _fetch_credentials(self, site: str, auth: tuple) -> tuple[str, tuple[str, str]]:
+    def _fetch_credentials(self, site: str, auth_token: str) -> tuple[str, tuple[str, str]]:
         """Fetch the credentials via repertoire.
 
         Parameters
         ----------
         site
             The repertoire site to query (must match auth token).
-        auth
-            The username and password for authentication to repertoire
-            (RSP/gaefaelfwr token).
+        auth_token
+            The token for authentication to repertoire (RSP/gaefaelfwr token).
         """
         creds_service = f"{API_ENDPOINTS[site]}/repertoire/discovery/influxdb"
         logger.debug(f"Attempting to fetch credentials from {creds_service}")
 
         try:
             with httpx2.Client() as client:
-                response = client.get(creds_service, auth=auth)
+                headers = {"Authorization": f"Bearer {auth_token}"}
+                response = client.get(creds_service, headers=headers)
                 response.raise_for_status()
         except (httpx2.HTTPStatusError, httpx2.RequestError) as exc:
             logger.error(f"Could not reach repertoire discovery at {creds_service}.")
@@ -435,9 +454,9 @@ class InfluxQueryClient(InfluxQueryClientBase):
         self,
         site: str = "usdf",
         db_name: str = "efd",
-        influx_auth_file: str | Path | None = None,
         repertoire_site: str | None = None,
-        auth: tuple | None = None,
+        auth_token: tuple | None = None,
+        influx_auth_file: str | Path | None = None,
         id_tag: str | None = None,
         query_timeout: float = 5 * 60,
     ) -> None:
@@ -445,7 +464,7 @@ class InfluxQueryClient(InfluxQueryClientBase):
             site=site,
             db_name=db_name,
             repertoire_site=repertoire_site,
-            auth=auth,
+            auth_token=auth_token,
             influx_auth_file=influx_auth_file,
             id_tag=id_tag,
             query_timeout=query_timeout,
@@ -615,9 +634,9 @@ class AsyncInfluxQueryClient(InfluxQueryClientBase):
         self,
         site: str = "usdf",
         db_name: str = "efd",
-        influx_auth_file: str | Path | None = None,
         repertoire_site: str | None = None,
-        auth: tuple | None = None,
+        auth_token: tuple | None = None,
+        influx_auth_file: str | Path | None = None,
         id_tag: str | None = None,
         query_timeout: float = 5 * 60,
     ) -> None:
@@ -625,7 +644,7 @@ class AsyncInfluxQueryClient(InfluxQueryClientBase):
             site=site,
             db_name=db_name,
             repertoire_site=repertoire_site,
-            auth=auth,
+            auth_token=auth_token,
             influx_auth_file=influx_auth_file,
             id_tag=id_tag,
             query_timeout=query_timeout,

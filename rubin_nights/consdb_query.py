@@ -158,7 +158,7 @@ class ConsDbTap(ConsDb):
     api_base
         Base API for services.
         e.g. https://usdf-rsp.slac.stanford.edu
-    token
+    auth_token
         The token for authentication.
     query_timeout
         Seconds to wait for a query to complete, in remote service.
@@ -169,16 +169,23 @@ class ConsDbTap(ConsDb):
     accessible at `ConsDbTap.tap`.
     """
 
-    def __init__(self, api_base: str, token: str, query_timeout: float = 10 * 60):
+    def __init__(self, api_base: str, auth_token: str, query_timeout: float = 10 * 60):
         url = api_base + "/api/consdbtap"
         self.query_timeout = query_timeout
         cred = pyvo.auth.CredentialStore()
-        cred.set_password("x-oauth-basic", token)
+        cred.set_password("x-oauth-basic", auth_token)
         self.credential = cred.get("ivo://ivoa.net/sso#BasicAA")
         self.tap = pyvo.dal.TAPService(url, session=self.credential)
+        self.joblist = []
 
     def __repr__(self) -> str:
         return self.tap.baseurl
+
+    def close(self) -> None:
+        # What to do with this is non-obvious.
+        # Deleting the jobs is a possibility, but cleanup is usually handled
+        # server side. Just pass for now.
+        pass
 
     def query(self, query: str) -> pd.DataFrame:
         """Execute TAP ConsDB query.
@@ -194,6 +201,7 @@ class ConsDbTap(ConsDb):
         """
         job = self.tap.submit_job(query)
         job.run()
+        self.joblist.append(job)
         job.wait(phases=["COMPLETED", "ERROR", "ABORTED"], timeout=self.query_timeout)
         if job.phase == "COMPLETED":
             results = job.fetch_result().to_table().to_pandas()
@@ -233,19 +241,20 @@ class ConsDbFastAPI(ConsDb):
     api_base
         Base API for services.
         e.g. https://usdf-rsp.slac.stanford.edu
-    auth
-        The username and password for authentication.
+    auth_token
+        The token for authentication to this service.
     query_timeout
         Seconds to wait for the query to return data.
 
     """
 
-    def __init__(self, api_base: str, auth: tuple, query_timeout: float = 10 * 60) -> None:
+    def __init__(self, api_base: str, auth_token: str, query_timeout: float = 10 * 60) -> None:
         self.base_url = api_base + "/consdb"
         timeout = httpx2.Timeout(timeout=query_timeout, connect=60.0)
         transport = httpx2.HTTPTransport(retries=2)
+        headers = {"Authorization": f"Bearer {auth_token}"}
         self.httpx_client = httpx2.Client(
-            base_url=self.base_url, timeout=timeout, transport=transport, auth=auth
+            base_url=self.base_url, timeout=timeout, transport=transport, headers=headers
         )
 
     def __repr__(self) -> str:
@@ -341,19 +350,20 @@ class AsyncConsDbFastAPI(ConsDb):
     api_base
         Base API for services.
         e.g. https://usdf-rsp.slac.stanford.edu
-    auth
-        The username and password for authentication.
+    auth_token
+        The token for authentication.
     query_timeout
         Seconds to wait for the query to return data.
 
     """
 
-    def __init__(self, api_base: str, auth: tuple, query_timeout: float = 10 * 60) -> None:
+    def __init__(self, api_base: str, auth_token: str, query_timeout: float = 10 * 60) -> None:
         self.base_url = api_base + "/consdb"
         timeout = httpx2.Timeout(timeout=query_timeout, connect=60.0)
         atransport = httpx2.AsyncHTTPTransport(retries=2)
+        headers = {"Authorization": f"Bearer {auth_token}"}
         self.async_client = httpx2.AsyncClient(
-            base_url=self.base_url, timeout=timeout, transport=atransport, auth=auth
+            base_url=self.base_url, timeout=timeout, transport=atransport, headers=headers
         )
 
     def __repr__(self) -> str:
@@ -457,6 +467,8 @@ class ConsDbSql(ConsDb):
     def __init__(self, site: str = "usdf", connection_string: str | None = None) -> None:
         # Authentication for the native postgres connection is via
         # credentials in ~/.lsst/postgres-credentials.txt
+        # Note that S3DF are working to deprecate this credentials file --
+        # at some point this will break! (TODO: fetch from vault)
         if not HAS_SQLALCHEMY:
             logging.warning(
                 "Cannot use ConsDbSql class without installing "
