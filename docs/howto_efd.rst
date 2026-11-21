@@ -24,6 +24,60 @@ Every index in the EFD is in UTC. Timestamps, when provided for different
 topics, are usually UTC, with some notable exceptions in TAI.
 
 
+Creating an EFD client
+----------------------
+
+:func:`~connections.get_clients` creates synchronous clients for the ``efd``,
+``lsst.obsenv`` (``obsenv``), ``lsst.prompt`` (``pp``) and ``lsst.scimma`` (``too``)
+InfluxDB databases. To create a client directly, pass the ``site`` of the InfluxDB,
+the ``db_name``, and your RSP ``auth_token``:
+
+.. code-block:: python
+
+    from rubin_nights.connections import get_access_token
+    from rubin_nights.influx_query import InfluxQueryClient
+
+    token = get_access_token()
+    efd = InfluxQueryClient(site="usdf", db_name="efd", repertoire_site="usdf", auth_token=token)
+    efd.creds_from  # reports where the InfluxDB credentials came from
+
+.. _howto_efd_credentials:
+
+Where the InfluxDB credentials come from
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The InfluxDB username and password are not the RSP token itself. They are found as follows:
+
+1. If ``auth_token`` is given, the credentials are fetched from the repertoire
+   discovery service at ``repertoire_site`` (which defaults to ``site``).
+   The token must be valid for ``repertoire_site``.
+2. Otherwise, if ``influx_auth_file`` is given, the credentials are read from that
+   JSON file. The file maps aliases such as ``"usdf_efd"`` to connection information
+   (``url``, ``username``, ``password``), in the format returned by repertoire.
+3. Otherwise, the ``EFDAUTH`` environment variable is checked for the path to such a file.
+
+If none of these is available, a ``ValueError`` is raised.
+
+Async EFD queries
+^^^^^^^^^^^^^^^^^
+
+:class:`~influx_query.AsyncInfluxQueryClient` takes the same arguments and provides
+the same query methods as coroutines:
+
+.. code-block:: python
+
+    from rubin_nights.influx_query import AsyncInfluxQueryClient
+
+    async with AsyncInfluxQueryClient(
+        site="usdf", db_name="efd", repertoire_site="usdf", auth_token=token
+    ) as async_efd:
+        topics = await async_efd.get_topics()
+        targets = await async_efd.select_time_series(
+            "lsst.sal.Scheduler.logevent_target", "*", t_start, t_end, index=1
+        )
+
+The examples below use the synchronous client from ``endpoints["efd"]``.
+
 Querying a time range
 ----------------------
 
