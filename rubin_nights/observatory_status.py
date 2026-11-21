@@ -317,7 +317,7 @@ def mtm1m3_slewflag_times(t_start: Time, t_end: Time, efd_client: InfluxQueryCli
         right_on="scriptSalIndex",
         suffixes=["_start", "_end"],
     )
-    mt_slew.rename({"time_end": "mtm1m3_clear", "time_start": "mtm1m3_set"}, axis=1, inplace=True)
+    mt_slew = mt_slew.rename({"time_end": "mtm1m3_clear", "time_start": "mtm1m3_set"}, axis=1)
     mt_slew["mt_slew_time"] = (mt_slew["mtm1m3_clear"] - mt_slew["mtm1m3_set"]) / pd.Timedelta(1, "s")  # type: ignore[operator]
 
     missing = set(slew_start.scriptSalIndex.values).symmetric_difference(set(slew_end.scriptSalIndex.values))
@@ -361,8 +361,8 @@ def get_rotator_limits(t_start: Time, t_end: Time, efd_client: InfluxQueryClient
     rot_start: pd.DataFrame = efd_client.select_top_n(topic, fields, num=1, time_cut=t_start)
     rot: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
     rot = pd.concat([rot_start, rot])
-    rot.query("drivesEnabled == 1.0", inplace=True)
-    rot.rename(rot_mapping, axis=1, inplace=True)
+    rot = rot.query("drivesEnabled == 1.0")
+    rot = rot.rename(rot_mapping, axis=1)
     # Make sure a value is in place for t_start
     index_edges = [
         pd.to_datetime(t_start.utc.datetime).tz_localize("UTC"),
@@ -370,10 +370,10 @@ def get_rotator_limits(t_start: Time, t_end: Time, efd_client: InfluxQueryClient
     ]
     rot_edges = pd.DataFrame(np.nan, index=index_edges, columns=list(rot_mapping.values()))
     rot = pd.concat([rot, rot_edges])
-    rot.sort_index(inplace=True)
-    rot.drop("drivesEnabled", axis=1, inplace=True)
-    rot.ffill(axis=0, inplace=True)
-    rot.query("index >= @index_edges[0] and index <= @index_edges[1]", inplace=True)
+    rot = rot.sort_index()
+    rot = rot.drop("drivesEnabled", axis=1)
+    rot = rot.ffill(axis=0)
+    rot = rot.query("index >= @index_edges[0] and index <= @index_edges[1]")
     return rot
 
 
@@ -391,7 +391,7 @@ def get_tma_limits(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) ->
     elevation_start: pd.DataFrame = efd_client.select_top_n(topic, fields, num=1, time_cut=t_start)
     elevation: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end)
     elevation = pd.concat([elevation_start, elevation])
-    elevation.rename(el_mapping, axis=1, inplace=True)
+    elevation = elevation.rename(el_mapping, axis=1)
     # Get azimuth limits
     topic = "lsst.sal.MTMount.logevent_azimuthControllerSettings"
     az_mapping = {
@@ -405,7 +405,7 @@ def get_tma_limits(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) ->
     azimuth_start = efd_client.select_top_n(topic, fields, num=1, time_cut=t_start)
     azimuth = efd_client.select_time_series(topic, fields, t_start, t_end)
     azimuth = pd.concat([azimuth_start, azimuth])
-    azimuth.rename(az_mapping, axis=1, inplace=True)
+    azimuth = azimuth.rename(az_mapping, axis=1)
     # First be sure we can come up with a value in place for t_start
     index_edges = [
         pd.to_datetime(t_start.utc.datetime).tz_localize("UTC"),
@@ -414,13 +414,13 @@ def get_tma_limits(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) ->
     elevation_edges = pd.DataFrame(np.nan, index=index_edges, columns=list(el_mapping.values()))
     azimuth_edges = pd.DataFrame(np.nan, index=index_edges, columns=list(az_mapping.values()))
     elevation = pd.concat([elevation, elevation_edges])
-    elevation.sort_index(inplace=True)
+    elevation = elevation.sort_index()
     # Fill nans with previous values
-    elevation.ffill(axis=0, inplace=True)
+    elevation = elevation.ffill(axis=0)
     azimuth = pd.concat([azimuth, azimuth_edges])
-    azimuth.sort_index(inplace=True)
+    azimuth = azimuth.sort_index()
     # Fill nans with previous values
-    azimuth.ffill(axis=0, inplace=True)
+    azimuth = azimuth.ffill(axis=0)
     # Merge these together with a 10 second tolerance
     match_range = pd.Timedelta(10, unit="second")
     tma = pd.merge_asof(
@@ -432,8 +432,8 @@ def get_tma_limits(t_start: Time, t_end: Time, efd_client: InfluxQueryClient) ->
         tolerance=match_range,
     )
     # And another fill, where azimuth was updated without altitude, etc.
-    tma.ffill(axis=0, inplace=True)
-    tma.query("index >= @index_edges[0] and index <= @index_edges[1]", inplace=True)
+    tma = tma.ffill(axis=0)
+    tma = tma.query("index >= @index_edges[0] and index <= @index_edges[1]")
     return tma
 
 
@@ -443,8 +443,8 @@ def get_mounted_bandpasses(t_start: Time, t_end: Time, efd_client: InfluxQueryCl
     bands_start = efd_client.select_top_n(topic, ["filterTypes"], num=1, time_cut=t_start)
     bands_during = efd_client.select_time_series(topic, ["filterTypes"], t_start, t_end)
     bands = pd.concat([bands_start, bands_during])
-    bands.rename(columns={"filterTypes": "available_bands"}, inplace=True)
-    bands.sort_index(inplace=True)
+    bands = bands.rename(columns={"filterTypes": "available_bands"})
+    bands = bands.sort_index()
 
     # Reformat string of bandpass names to list, dropping "none"
     def parse_available_bands(x: pd.Series) -> list[str]:
@@ -480,10 +480,14 @@ def get_obs_status_messages(t_start: Time, t_end: Time, efd_client: InfluxQueryC
     topic = "lsst.sal.Scheduler.logevent_observatoryStatus"
     fields = ["status", "note", "statusLabels"]
     obs_status_messages: pd.DataFrame = efd_client.select_time_series(topic, fields, t_start, t_end, index=1)
-    if len(obs_status_messages) == 0:
-        obs_status_messages = pd.DataFrame([], columns=fields)
+    # also fetch previous message, to capture incoming state.
+    prev_obs_status_messages: pd.DataFrame = efd_client.select_top_n(
+        topic, fields, num=1, time_cut=t_start, index=1
+    )
+    obs_status_messages = pd.concat([prev_obs_status_messages, obs_status_messages])
+    # Add day_obs label.
     obs_status_messages["day_obs"] = day_obs_from_efd_index_array(obs_status_messages.index.to_series())
-    # WEATHER or DOWNTIME alone should match with IDLE
+    # WEATHER or DOWNTIME if by themselves, should be matched with IDLE.
     idx = obs_status_messages.query("statusLabels == 'WEATHER'").index
     obs_status_messages.loc[idx, "statusLabels"] = "IDLE | WEATHER"
     idx = obs_status_messages.query("statusLabels == 'DOWNTIME'").index
@@ -528,7 +532,7 @@ def _obs_status_state_changes(obs_status_messages: pd.DataFrame, status_type: st
         # Do not drop UNKNOWN. We will override these later
         # when counting up contributed hours.
         o = obs_status_messages.copy()
-    o.reset_index(inplace=True)
+    o = o.reset_index()
 
     # Are there no records with this type at all?
     if len(o.query("statusLabels.str.contains(@status_type)")) == 0:
@@ -573,10 +577,10 @@ def _obs_status_state_changes(obs_status_messages: pd.DataFrame, status_type: st
             closure.append(
                 [
                     day_obs,
-                    sunset12.datetime,
-                    sunrise12.datetime,
-                    sunset12.datetime,
-                    sunrise12.datetime,
+                    sunset12.utc.datetime,
+                    sunrise12.utc.datetime,
+                    sunset12.utc.datetime,
+                    sunrise12.utc.datetime,
                     (sunrise12 - sunset12).jd * 24,
                 ]
             )
@@ -590,10 +594,10 @@ def _obs_status_state_changes(obs_status_messages: pd.DataFrame, status_type: st
                 closure.append(
                     [
                         day_obs,
-                        sunset12.datetime,
-                        sunrise12.datetime,
-                        sunset12.datetime,
-                        end.datetime,
+                        sunset12.utc.datetime,
+                        sunrise12.utc.datetime,
+                        sunset12.utc.datetime,
+                        end.utc.datetime,
                         (end - sunset12).jd * 24,
                     ]
                 )
@@ -610,10 +614,10 @@ def _obs_status_state_changes(obs_status_messages: pd.DataFrame, status_type: st
                 closure.append(
                     [
                         day_obs,
-                        sunset12.datetime,
-                        sunrise12.datetime,
-                        start.datetime,
-                        sunrise12.datetime,
+                        sunset12.utc.datetime,
+                        sunrise12.utc.datetime,
+                        start.utc.datetime,
+                        sunrise12.utc.datetime,
                         (sunrise12 - start).jd * 24,
                     ]
                 )
@@ -642,10 +646,10 @@ def _obs_status_state_changes(obs_status_messages: pd.DataFrame, status_type: st
                         closure.append(
                             [
                                 day_obs,
-                                sunset12.datetime,
-                                sunrise12.datetime,
-                                start_time.datetime,
-                                end_time.datetime,
+                                sunset12.utc.datetime,
+                                sunrise12.utc.datetime,
+                                start_time.utc.datetime,
+                                end_time.utc.datetime,
                                 (end_time - start_time).jd * 24,
                             ]
                         )
@@ -689,23 +693,30 @@ def get_observatory_state_times(t_start: Time, t_end: Time, efd_client: InfluxQu
     idle["type"] = "IDLE"
     unknown = _obs_status_state_changes(obs_status_messages, "UNKNOWN")
     unknown["type"] = "UNKNOWN"
-    obs_status_periods = pd.concat([weather, downtime, fault, idle, unknown, operational]).sort_values(
-        "start", ignore_index=True
-    )
+    df_list = [df for df in [weather, downtime, fault, operational, idle, unknown] if not df.empty]
+    if len(df_list) == 0:
+        obs_status_periods = pd.DataFrame(
+            [], columns=["day_obs", "sunset12", "sunrise12", "start", "end", "hours"]
+        )
+    else:
+        obs_status_periods = pd.concat(df_list).sort_values("start", ignore_index=True)
     return obs_status_periods
 
 
 def _count_contribution(x: pd.Series, obs_status_periods: pd.DataFrame) -> float:
     """Apply priorities to how to count periods of downtime."""
-    # Weather is always just weather and downtime trumps all.
+    # Weather is always just weather.
+    # Downtime trumps all other states (if in DOWNTIME, don't count fault).
     if x.type == "WEATHER" or x.type == "DOWNTIME":
         return x.hours
 
     count_time = x.hours
 
     # Downtime will override an exclusive state.
-    # Otherwise must just count up unknown, idle, fault, and operational.
+    # FAULT can coexist with other states, but we want to count as FAULT.
     downtime = obs_status_periods.query("type == 'DOWNTIME' and day_obs == @x.day_obs")
+    # fault = obs_status_periods.query("type == 'FAULT' and "
+    #                                 "day_obs == @x.day_obs")
     if len(downtime) > 0:
         # Did this period end before (any) downtime on this dayobs started?
         # Or start after (any) downtime on this dayobs started?
@@ -737,6 +748,8 @@ def count_observatory_states(
     Currently: this method only discounts 'fault' periods that occur
     during DOWNTIME.
     """
+    if obs_status_periods.empty:
+        return obs_status_periods, pd.DataFrame([])
     # Apply priorities for 'contributed' hours to downtime periods
     contributed_hours = obs_status_periods.apply(
         _count_contribution, obs_status_periods=obs_status_periods, axis=1
@@ -792,7 +805,7 @@ def count_observatory_states(
         summary = day_obs_sunset_sunrise_df(
             obs_status_periods.day_obs.min(), obs_status_periods.day_obs.max()
         )
-        summary.set_index("day_obs", inplace=True)
+        summary = summary.set_index("day_obs")
         summary = pd.merge(summary, w, how="outer", left_index=True, right_index=True)
     summary = pd.merge(summary, d, how="outer", left_index=True, right_index=True)
     summary = pd.merge(summary, f, how="outer", left_index=True, right_index=True)

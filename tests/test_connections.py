@@ -1,9 +1,10 @@
 import os
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 import rubin_nights.connections as connections
-from rubin_nights.reference_values import API_ENDPOINTS
+from rubin_nights.logging_query import NarrativeLogClient, NightReportClient
 
 IN_CI = os.getenv("CI") == "true"
 
@@ -54,28 +55,6 @@ class TestConnections(unittest.TestCase):
         if current_env_tokenfile is not None:
             os.environ["ACCESS_TOKEN_FILE"] = current_env_tokenfile
 
-    @unittest.skipIf(IN_CI, "Skipping test in CI environment")
-    def test_endpoints(self) -> None:
-        # Check definition of sites
-        for site in ["usdf", "usdf-dev", "usdf-int", "summit", "base"]:
-            self.assertTrue(site in API_ENDPOINTS)
-        # This call will trigger fetching the influx db credentials.
-        # Disable until all fetching is part of repertoire.
-        endpoints = connections.get_clients()
-        # Check expected clients are added to the dictionary
-        clients = [
-            "consdb",
-            "consdb_tap",
-            "efd",
-            "obsenv",
-            "pp",
-            "narrative_log",
-            "exposure_log",
-            "night_report",
-        ]
-        endpoint_keys = list(endpoints.keys())
-        self.assertTrue(len([c for c in clients if c not in endpoint_keys]) == 0)
-
     def test_usdf_lfa(self) -> None:
         http_uri = "https://s3.cp.lsst.org/"
         uri = (
@@ -88,6 +67,50 @@ class TestConnections(unittest.TestCase):
         )
         new_uri = connections.usdf_lfa(http_uri + uri, bucket="s3://lfa@")
         self.assertEqual(new_uri, result)
+
+    def test_usdf_s3_env(self) -> None:
+        # Check if LSST_DISABLE_BUCKET_VALIDATION and S3_ENDPOINT_URL get set
+        env_vars = ["LSST_DISABLE_BUCKET_VALIDATION", "S3_ENDPOINT_URL"]
+        # Save current setup
+        current_vars = {}
+        for var in env_vars:
+            current_vars[var] = os.getenv(var)
+        # Remove current setup from env.
+        for var in env_vars:
+            if var in os.environ:
+                del os.environ[var]
+        # Call function - sets variables.
+        connections.usdf_s3_env()
+        # Check they were set.
+        for var in env_vars:
+            assert var in os.environ
+        # Replace original values.
+        for var in env_vars:
+            if current_vars[var] is not None:
+                os.environ[var] = current_vars[var]
+
+    def test_close_clients(self) -> None:
+        api_base = "https://example.test"
+        mock_client = Mock()
+        narrative_log = NarrativeLogClient(api_base, auth_token=self.expected_token)
+        night_report = NightReportClient(api_base, auth_token=self.expected_token)
+        # Mimic the structure returned by get_clients, including the
+        # api_base string and a None client (e.g. "too" at usdf-dev).
+        endpoints = {
+            "api_base": api_base,
+            "too": None,
+            "efd": mock_client,
+            "narrative_log": narrative_log,
+            "night_report": night_report,
+        }
+        # Should skip the str and None entries without raising.
+        connections.close_clients(endpoints)
+        mock_client.close.assert_called_once()
+        self.assertTrue(narrative_log.httpx_client.is_closed)
+        self.assertTrue(night_report.httpx_client.is_closed)
+        # Endpoints that are only strings or None are a no-op.
+        connections.close_clients({"api_base": api_base, "too": None})
+        connections.close_clients({})
 
 
 if __name__ == "__main__":

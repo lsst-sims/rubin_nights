@@ -1,16 +1,23 @@
 import logging
 import re
-from typing import Any, Literal
+from types import TracebackType
+from typing import Any, Literal, Optional, Self, Type
 from urllib.parse import urlparse
 
-import httpx
+import httpx2
 import numpy as np
 import pandas as pd
 from astropy.time import Time, TimeDelta
 
 from .dayobs_utils import day_obs_to_time
 
-__all__ = ["NightReportClient", "NarrativeLogClient", "ExposureLogClient"]
+__all__ = [
+    "NightReportClient",
+    "NarrativeLogClient",
+    "AsyncNarrativeLogClient",
+    "ExposureLogClient",
+    "AsyncExposureLogClient",
+]
 
 
 logger = logging.getLogger(__name__)
@@ -26,7 +33,7 @@ def logtime_to_datetime(x: pd.Series, column: str) -> str:
 
         messages["time"] = messages.apply(logtime_to_datetime,
                                           args=("date_added",), axis=1)
-        messages.set_index("time", inplace=True)
+        messages = messages.set_index("time")
         messages.index = messages.index.tz_localize("UTC")
 
     """
@@ -39,37 +46,50 @@ class LoggingServiceClient:
     Parameters
     ----------
     url
-        Endpoint URL for the night report.
-    auth
-        The username and password for authentication.
+        Endpoint URL.
+    auth_token
+        The authentication token for the service.
     results_as_dataframe
         If True, convert query results into a pandas DataFrame.
         If False, results are returned as a list of dictionaries.
     """
 
-    def __init__(self, url: str, auth: tuple, results_as_dataframe: bool = True):
+    def __init__(self, url: str, auth_token: str, results_as_dataframe: bool = True):
         self.url = url
+        # Override in subclass.
+        self.url_extension = ""
         self.results_as_dataframe = results_as_dataframe
-        timeout = httpx.Timeout(120, connect=30)
-        self.httpx_client = httpx.Client(timeout=timeout, auth=auth)
-        self.async_client = httpx.AsyncClient(timeout=timeout, auth=auth)
+        timeout = httpx2.Timeout(120, connect=30)
+        headers = {"Authorization": f"Bearer {auth_token}"}
+        self.httpx_client = httpx2.Client(base_url=self.url, timeout=timeout, headers=headers)
 
     def __repr__(self) -> str:
-        return self.url
-
-    async def close_async(self) -> None:
-        """Close async connection client."""
-        await self.async_client.aclose()
+        return self.url + self.url_extension
 
     def close(self) -> None:
         """Close sync connection client."""
         self.httpx_client.close()
 
-    def query(self, params: dict) -> list[dict] | pd.DataFrame:
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
+        self.close()
+
+    def query(self, url_extension: str, params: dict) -> list[dict] | pd.DataFrame:
         """Execute sync query to logging services API, for any params.
 
         Parameters
         ----------
+        url_extension
+            Addition to the base URL for the query endpoint.
+            Leave the base url to be the default api_base;
+            Subclasses add their service endpoint.
         params
             Dictionary of parameters for the REST API query.
             See docs for each service for more details.
@@ -83,14 +103,14 @@ class LoggingServiceClient:
         """
         # This is a stupid simple retry - because the logging services
         # often drop the first request, but are ok after that.
-        response = self.httpx_client.get(self.url, params=params)
+        response = self.httpx_client.get(url_extension, params=params)
         if response.status_code != 200:
             try:
-                response = self.httpx_client.get(self.url, params=params)
+                response = self.httpx_client.get(url_extension, params=params)
                 response.raise_for_status()
-            except httpx.RequestError as exc:
+            except httpx2.RequestError as exc:
                 logger.warning(f"An error occurred while requesting {exc.request.url!r}.")
-            except httpx.HTTPStatusError as exc:
+            except httpx2.HTTPStatusError as exc:
                 logger.warning(
                     f"Error response {exc.response.status_code} while requesting {exc.request.url!r}."
                 )
@@ -103,11 +123,57 @@ class LoggingServiceClient:
             messages = pd.DataFrame(messages)
         return messages
 
-    async def async_query(self, params: dict) -> list[dict] | pd.DataFrame:
+
+class AsyncLoggingServiceClient:
+    """Query the logging services, asynchronously.
+
+    Parameters
+    ----------
+    url
+        Endpoint URL base.
+    auth_token
+        The authentication token for the service.
+    results_as_dataframe
+        If True, convert query results into a pandas DataFrame.
+        If False, results are returned as a list of dictionaries.
+    """
+
+    def __init__(self, url: str, auth_token: str, results_as_dataframe: bool = True):
+        self.url = url
+        # Override in subclass.
+        self.url_extension = ""
+        self.results_as_dataframe = results_as_dataframe
+        timeout = httpx2.Timeout(120, connect=30)
+        headers = {"Authorization": f"Bearer {auth_token}"}
+        self.async_client = httpx2.AsyncClient(base_url=self.url, timeout=timeout, headers=headers)
+
+    def __repr__(self) -> str:
+        return self.url + self.url_extension
+
+    async def aclose(self) -> None:
+        """Close async connection client."""
+        await self.async_client.aclose()
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
+        await self.aclose()
+
+    async def query(self, url_extension: str, params: dict) -> list[dict] | pd.DataFrame:
         """Execute async query to logging services API, for any params.
 
         Parameters
         ----------
+        url_extension
+            Addition to the base URL for the query endpoint.
+            Leave the base url to be the default api_base;
+            Subclasses add their service endpoint.
         params
             Dictionary of parameters for the REST API query.
             See docs for each service for more details.
@@ -121,14 +187,14 @@ class LoggingServiceClient:
         """
         # This is a stupid simple retry - because the logging services
         # often drop the first request, but are ok after that.
-        response = await self.async_client.get(self.url, params=params)
+        response = await self.async_client.get(url_extension, params=params)
         if response.status_code != 200:
             try:
-                response = await self.async_client.get(self.url, params=params)
+                response = await self.async_client.get(url_extension, params=params)
                 response.raise_for_status()
-            except httpx.RequestError as exc:
+            except httpx2.RequestError as exc:
                 logger.warning(f"An error occurred while requesting {exc.request.url!r}.")
-            except httpx.HTTPStatusError as exc:
+            except httpx2.HTTPStatusError as exc:
                 logger.warning(
                     f"Error response {exc.response.status_code} while requesting {exc.request.url!r}."
                 )
@@ -144,34 +210,29 @@ class LoggingServiceClient:
 
 class NightReportClient(LoggingServiceClient):
     """Query for the night report log.
+    Synchronous only.
 
     Parameters
     ----------
     api_base
         Base API for services.
         e.g. https://usdf-rsp.slac.stanford.edu
-    auth
-        The username and password for authentication.
+    auth_token
+        The authentication token for the service.
     """
 
-    def __init__(self, api_base: str, auth: tuple) -> None:
-        url = api_base + "/nightreport/reports"
-        super().__init__(url=url, auth=auth, results_as_dataframe=False)
+    def __init__(self, api_base: str, auth_token: str) -> None:
+        url = api_base
+        super().__init__(url=url, auth_token=auth_token, results_as_dataframe=False)
+        # Override url_extension for night report query.
+        self.url_extension = "/nightreport/reports"
 
     # Override base query for clearer return typing
-    def query(self, params: dict[str, Any]) -> list[dict[Any, Any]]:
+    def query_report(self, params: dict[str, Any]) -> list[dict[Any, Any]]:
         """Override to narrow the return type to list only."""
-        result = super().query(params=params)
+        result = super().query(url_extension=self.url_extension, params=params)
         # This always returns a list[dict] because results_as_dataframe is
-        # False. Overriding here lets mypy know that.
-        assert isinstance(result, list), "Expected list but got DataFrame"
-        return result
-
-    async def async_query(self, params: dict[str, Any]) -> list[dict[Any, Any]]:
-        """Override to narrow the return type to list only."""
-        result = await super().async_query(params=params)
-        # This always returns a list[dict] because results_as_dataframe is
-        # False. Overriding here lets mypy know that.
+        # False. Asserting here lets mypy know that.
         assert isinstance(result, list), "Expected list but got DataFrame"
         return result
 
@@ -237,52 +298,7 @@ class NightReportClient(LoggingServiceClient):
         """
         params = self.query_params(day_obs)
 
-        night_reports = self.query(params=params)
-
-        if len(night_reports) == 0:
-            logger.warning(f"No night report available for {day_obs}")
-
-        if return_html:
-            html = self.format_night_report(night_reports, telescope=telescope)
-        else:
-            html = ""
-
-        return night_reports, html
-
-    async def async_query_night_report(
-        self,
-        day_obs: str | int,
-        telescope: Literal["AuxTel", "Simonyi"] | None = None,
-        return_html: bool = True,
-    ) -> tuple[list[dict], str]:
-        """Fetch the night report logs.
-
-        Parameters
-        ----------
-        day_obs
-            The day_obs of the night report.
-            Format YYYY-MM-DD (str) or YYYYMMDD (int).
-        telescope
-            Format the night report logs for this telescope.
-            Options: AuxTel, Simonyi or None (None will return both).
-            The night_report now returns both telescope's summary reports.
-        return_html
-            Send back an HTML formatted version of the first night report log,
-            optionally for a given telescope only.
-
-        Returns
-        -------
-        night_reports : `list` {`dict`}
-            The night report logs, which are a list
-            (often a single-element list, but can be multiple during the night)
-            of dictionary key:value pairs describing the night report.
-        html : `str` (optional)
-            If `return_html` is True, also return an HTML formatted version
-            of the night report, potentially for a given telescope only.
-        """
-        params = self.query_params(day_obs)
-
-        night_reports = await self.async_query(params=params)
+        night_reports = self.query_report(params=params)
 
         if len(night_reports) == 0:
             logger.warning(f"No night report available for {day_obs}")
@@ -353,34 +369,8 @@ class NightReportClient(LoggingServiceClient):
         return html
 
 
-class NarrativeLogClient(LoggingServiceClient):
-    """Query for the narrative log.
-
-    Parameters
-    ----------
-    api_base
-        Base API for services.
-        e.g. https://usdf-rsp.slac.stanford.edu
-    auth
-        The username and password for authentication.
-    """
-
-    def __init__(self, api_base: str, auth: tuple) -> None:
-        url = api_base + "/narrativelog/messages"
-        super().__init__(url=url, auth=auth, results_as_dataframe=True)
-
-    # Override base query for clearer return typing
-    def query(self, params: dict[str, Any]) -> pd.DataFrame:
-        """Override to narrow the return type to list only."""
-        result = super().query(params=params)
-        assert isinstance(result, pd.DataFrame), "Expected DataFrame but got list"
-        return result
-
-    async def async_query(self, params: dict[str, Any]) -> pd.DataFrame:
-        """Override to narrow the return type to list only."""
-        result = await super().async_query(params=params)
-        assert isinstance(result, pd.DataFrame), "Expected DataFrame but got list"
-        return result
+class NarrativeLogBase:
+    """Base class to hold static methods for sync and async NarrativeLog."""
 
     @staticmethod
     def query_params(t_start: Time, t_end: Time, user_params: dict | None = None) -> dict[str, Any]:
@@ -455,7 +445,7 @@ class NarrativeLogClient(LoggingServiceClient):
         time_end = messages.apply(logtime_to_datetime, args=("date_end",), axis=1)
         time = np.where(messages.time_lost > 0, time_end, time_start)
         messages["time"] = pd.DatetimeIndex(time).tz_localize("UTC")
-        messages.set_index("time", inplace=True)
+        messages = messages.set_index("time")
 
         # Join the components and add "Log" explicitly
         # Choose between 'components' and 'components_json'
@@ -465,6 +455,25 @@ class NarrativeLogClient(LoggingServiceClient):
             key = "components_json"
         messages["component"] = messages.apply(simplify_log, args=(key,), axis=1)
         return messages
+
+
+class NarrativeLogClient(LoggingServiceClient, NarrativeLogBase):
+    """Query for the narrative log.
+
+    Parameters
+    ----------
+    api_base
+        Base API for services.
+        e.g. https://usdf-rsp.slac.stanford.edu
+    auth_token
+        The authentication token for the service.
+    """
+
+    def __init__(self, api_base: str, auth_token: str) -> None:
+        url = api_base
+        super().__init__(url=url, auth_token=auth_token, results_as_dataframe=True)
+        # Override for narrative log queries.
+        self.url_extension = "/narrativelog/messages"
 
     def query_log(self, t_start: Time, t_end: Time, user_params: dict | None = None) -> pd.DataFrame:
         """Get narrative log entries over a specified timespan.
@@ -493,17 +502,35 @@ class NarrativeLogClient(LoggingServiceClient):
         log values into other events at the telescope.
         """
         params = self.query_params(t_start=t_start, t_end=t_end, user_params=user_params)
+        messages = super().query(self.url_extension, params=params)
+        # Assert for mypy.
+        assert isinstance(messages, pd.DataFrame), "Expected DataFrame but got list"
 
-        messages: pd.DataFrame = self.query(params=params)
         if len(messages) == params["limit"]:
             logger.warning(f"Narrative log messages hit log_limit ({params['limit']})")
         if len(messages) > 0:
             messages = self._reformat_narrative_log(messages)
         return messages
 
-    async def async_query_log(
-        self, t_start: Time, t_end: Time, user_params: dict | None = None
-    ) -> pd.DataFrame:
+
+class AsyncNarrativeLogClient(AsyncLoggingServiceClient, NarrativeLogBase):
+    """Query for the narrative log, asynchronous.
+
+    Parameters
+    ----------
+    api_base
+        Base API for services.
+        e.g. https://usdf-rsp.slac.stanford.edu
+    auth_token
+        The authentication token for the service.
+    """
+
+    def __init__(self, api_base: str, auth_token: str) -> None:
+        url = api_base
+        super().__init__(url=url, auth_token=auth_token, results_as_dataframe=True)
+        self.url_extension = "/narrativelog/messages"
+
+    async def query_log(self, t_start: Time, t_end: Time, user_params: dict | None = None) -> pd.DataFrame:
         """Async get narrative log entries over a specified timespan.
 
         Parameters
@@ -530,8 +557,10 @@ class NarrativeLogClient(LoggingServiceClient):
         log values into other events at the telescope.
         """
         params = self.query_params(t_start=t_start, t_end=t_end, user_params=user_params)
+        messages = await super().query(url_extension=self.url_extension, params=params)
+        # Assert for mypy.
+        assert isinstance(messages, pd.DataFrame), "Expected DataFrame but got list"
 
-        messages: pd.DataFrame = await self.async_query(params=params)
         if len(messages) == params["limit"]:
             logger.warning(f"Narrative log messages hit log_limit ({params['limit']})")
         if len(messages) > 0:
@@ -539,38 +568,12 @@ class NarrativeLogClient(LoggingServiceClient):
         return messages
 
 
-class ExposureLogClient(LoggingServiceClient):
-    """Query for the exposure log.
-
-    Parameters
-    ----------
-    api_base
-        Base API for services.
-        e.g. https://usdf-rsp.slac.stanford.edu
-    auth
-        The username and password for authentication.
-    """
-
-    def __init__(self, api_base: str, auth: tuple):
-        url = api_base + "/exposurelog/messages"
-        super().__init__(url=url, auth=auth, results_as_dataframe=True)
-
-    # Override base query for clearer return typing
-    def query(self, params: dict[str, Any]) -> pd.DataFrame:
-        """Override to narrow the return type to list only."""
-        result = super().query(params=params)
-        assert isinstance(result, pd.DataFrame), "Expected DataFrame but got list"
-        return result
-
-    async def async_query(self, params: dict[str, Any]) -> pd.DataFrame:
-        """Override to narrow the return type to list only."""
-        result = await super().async_query(params=params)
-        assert isinstance(result, pd.DataFrame), "Expected DataFrame but got list"
-        return result
+class ExposureLogBase:
+    """Base class to hold static methods for sync, async client."""
 
     @staticmethod
-    def query_params(t_start: Time, t_end: Time, user_params: dict | None = None) -> dict[str, Any]:
-        """Set query parameters for exposure log query.
+    def query_message_params(t_start: Time, t_end: Time, user_params: dict | None = None) -> dict[str, Any]:
+        """Set query parameters for exposure log query for messages.
 
         Parameters
         ----------
@@ -595,18 +598,82 @@ class ExposureLogClient(LoggingServiceClient):
         of the exposure itself directly. Thus t_start and t_end are translated
         to less specific min_day_obs_min and max_day_obs for the query.
         """
-        log_limit = 50000
-
         params = {
             "is_human": "either",
             "is_valid": "true",
             "min_day_obs": int(t_start.tai.isot.split("T")[0].replace("-", "")),
             "max_day_obs": int(t_end.tai.isot.split("T")[0].replace("-", "")),
-            "limit": log_limit,
+            "limit": 50000,
         }
         if user_params is not None:
             params.update(user_params)
         return params
+
+    @staticmethod
+    def query_exposure_params(t_start: Time, t_end: Time, user_params: dict | None = None) -> dict[str, Any]:
+        """Set query parameters for exposure log query for messages.
+
+        Parameters
+        ----------
+        t_start
+            Time of start of exposure log query.
+            This is translated to min_date for the query.
+        t_end
+            Time of end of exposure log query.
+            This is translated to max_date for the query.
+        user_params
+            Additional parameters to add or override defaults.
+            Passing `{'limit': int}` will override the default limit.
+            The default `instrument` is LSSTCam.
+
+        Returns
+        -------
+        params : `dict`
+        """
+        params = {
+            "min_date": t_start.tai.isot,
+            "max_date": t_end.tai.isot,
+            "instrument": "LSSTCam",
+            "limit": 50000,
+        }
+        if user_params is not None:
+            params.update(user_params)
+        return params
+
+
+class ExposureLogClient(LoggingServiceClient, ExposureLogBase):
+    """Query for the exposure log.
+
+    Parameters
+    ----------
+    api_base
+        Base API for services.
+        e.g. https://usdf-rsp.slac.stanford.edu
+    auth_token
+        The authentication token for the service.
+    """
+
+    def __init__(self, api_base: str, auth_token: str):
+        url = api_base
+        super().__init__(url=url, auth_token=auth_token, results_as_dataframe=True)
+        # Override for exposure log queries.
+        self.url_extension = "/exposurelog"
+        self.message_url = url + "/exposurelog/messages"
+        self.exposure_url = url + "/exposurelog/exposures"
+
+    def message_query(self, params: dict[str, Any]) -> pd.DataFrame:
+        """Query exposurelog messages."""
+        result = super().query(url_extension=self.message_url, params=params)
+        # Assert for mypy.
+        assert isinstance(result, pd.DataFrame), "Expected DataFrame but got list"
+        return result
+
+    def exposure_query(self, params: dict[str, Any]) -> pd.DataFrame:
+        """Query the exposure log for exposures."""
+        result = super().query(url_extension=self.exposure_url, params=params)
+        # Assert for mypy.
+        assert isinstance(result, pd.DataFrame), "Expected DataFrame but got list"
+        return result
 
     def query_log(self, t_start: Time, t_end: Time, user_params: dict | None = None) -> pd.DataFrame:
         """Get exposure log message entries over a specified timespan.
@@ -614,9 +681,9 @@ class ExposureLogClient(LoggingServiceClient):
         Parameters
         ----------
         t_start
-            Time of start of exposure log query.
+            Time of start of exposure log message query.
         t_end
-            Time of end of exposure log query.
+            Time of end of exposure log message query.
         user_params
             Additional parameters to add or override defaults.
             Passing `{'limit': int}` can override the default limit.
@@ -626,25 +693,83 @@ class ExposureLogClient(LoggingServiceClient):
         messages : `pd.DataFrame`
             Exposure log messages.
         """
-        params = self.query_params(t_start=t_start, t_end=t_end, user_params=user_params)
-
-        messages = self.query(params=params)
+        params = self.query_message_params(t_start=t_start, t_end=t_end, user_params=user_params)
+        messages = self.message_query(params=params)
         if len(messages) == params["limit"]:
             logger.warning(f"Exposure log messages hit log_limit ({params['limit']})")
 
         return messages
 
-    async def async_query_log(
-        self, t_start: Time, t_end: Time, user_params: dict | None = None
-    ) -> pd.DataFrame:
+    def query_exposures(self, t_start: Time, t_end: Time, user_params: dict | None = None) -> pd.DataFrame:
+        """Get exposure records over a specified timespan.
+
+        Parameters
+        ----------
+        t_start
+            Time of start of exposure log exposure query.
+        t_end
+            Time of end of exposure log exposure query.
+        user_params
+            Additional parameters to add or override defaults.
+            Passing `{'limit': int}` can override the default limit.
+
+        Returns
+        -------
+        exposures : `pd.DataFrame`
+            Exposure log.
+        """
+        params = self.query_exposure_params(t_start=t_start, t_end=t_end, user_params=user_params)
+        exposures = self.exposure_query(params=params)
+        if len(exposures) == params["limit"]:
+            logger.warning(f"Exposure log messages hit log_limit ({params['limit']})")
+
+        return exposures
+
+
+class AsyncExposureLogClient(AsyncLoggingServiceClient, ExposureLogBase):
+    """Query for the exposure log, asynchronous.
+
+    Parameters
+    ----------
+    api_base
+        Base API for services.
+        e.g. https://usdf-rsp.slac.stanford.edu
+    auth_token
+        The authentication token for the service.
+    """
+
+    def __init__(self, api_base: str, auth_token: str):
+        url = api_base + "/exposurelog"
+        self.base_url = url
+        self.message_url = url + "/messages"
+        self.exposure_url = url + "/exposures"
+        super().__init__(url=url, auth_token=auth_token, results_as_dataframe=True)
+
+    # Override base query for clearer return typing
+    async def message_query(self, params: dict[str, Any]) -> pd.DataFrame:
+        """Override to narrow the return type to list only."""
+        result = await self.query(url_extension=self.message_url, params=params)
+        # Assert for mypy.
+        assert isinstance(result, pd.DataFrame), "Expected DataFrame but got list"
+        return result
+
+    # Override base query for clearer return typing
+    async def exposure_query(self, params: dict[str, Any]) -> pd.DataFrame:
+        """Override to narrow the return type to list only."""
+        result = await self.query(url_extension=self.exposure_url, params=params)
+        # Assert for mypy.
+        assert isinstance(result, pd.DataFrame), "Expected DataFrame but got list"
+        return result
+
+    async def query_log(self, t_start: Time, t_end: Time, user_params: dict | None = None) -> pd.DataFrame:
         """Get exposure log message entries over a specified timespan.
 
         Parameters
         ----------
         t_start
-            Time of start of exposure log query.
+            Time of start of exposure log message query.
         t_end
-            Time of end of exposure log query.
+            Time of end of exposure log message query.
         user_params
             Additional parameters to add or override defaults.
             Passing `{'limit': int}` can override the default limit.
@@ -654,10 +779,36 @@ class ExposureLogClient(LoggingServiceClient):
         messages : `pd.DataFrame`
             Exposure log messages.
         """
-        params = self.query_params(t_start=t_start, t_end=t_end, user_params=user_params)
-
-        messages = await self.async_query(params=params)
+        params = self.query_message_params(t_start=t_start, t_end=t_end, user_params=user_params)
+        messages = await self.message_query(params=params)
         if len(messages) == params["limit"]:
             logger.warning(f"Exposure log messages hit log_limit ({params['limit']})")
 
         return messages
+
+    async def query_exposures(
+        self, t_start: Time, t_end: Time, user_params: dict | None = None
+    ) -> pd.DataFrame:
+        """Get exposure records over a specified timespan.
+
+        Parameters
+        ----------
+        t_start
+            Time of start of exposure log exposure query.
+        t_end
+            Time of end of exposure log exposure query.
+        user_params
+            Additional parameters to add or override defaults.
+            Passing `{'limit': int}` can override the default limit.
+
+        Returns
+        -------
+        exposures : `pd.DataFrame`
+            Exposure log.
+        """
+        params = self.query_exposure_params(t_start=t_start, t_end=t_end, user_params=user_params)
+        exposures = await self.exposure_query(params=params)
+        if len(exposures) == params["limit"]:
+            logger.warning(f"Exposure log messages hit log_limit ({params['limit']})")
+
+        return exposures

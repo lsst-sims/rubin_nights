@@ -72,7 +72,7 @@ def augment_visits(
 
     # Replace Nones or Nans in important string fields
     values = dict([[e, ""] for e in ["science_program", "target_name", "observation_reason"]])
-    visits.fillna(value=values, inplace=True)
+    visits = visits.fillna(value=values)
 
     # If NaNs were included in the return values, these columns may be object:
     columns_to_floats = [
@@ -103,7 +103,7 @@ def augment_visits(
         if col in visits:
             visits[col] = visits[col].astype("float")
 
-    visits.sort_values(by="exp_midpt_mjd", inplace=True)
+    visits = visits.sort_values(by="exp_midpt_mjd")
 
     # Add time between visits
     prev_visit_start = np.concatenate([np.array([0]), visits.obs_start_mjd[0:-1]])

@@ -7,7 +7,7 @@ from .influx_query import InfluxQueryClient
 from .logging_query import ExposureLogClient, NarrativeLogClient, NightReportClient
 from .reference_values import API_ENDPOINTS
 
-__all__ = ["get_access_token", "get_clients", "usdf_lfa"]
+__all__ = ["get_access_token", "get_clients", "close_clients", "usdf_s3_env", "usdf_lfa"]
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +115,7 @@ def get_clients(
         Most likely to be used to specify `usdf-dev` vs `usdf`.
         Note that this should be equivalent to the repertoire discovery site.
     auth_token
-        The bare authentication token string.
+        The authentication token itself.
         If not None, this will override any tokenfile argument.
         Useful in services running behind Gafaelfawr authentication.
 
@@ -141,8 +141,6 @@ def get_clients(
     else:
         # Set up authentication
         token = get_access_token(tokenfile)
-
-    auth = ("user", token)
 
     if site is None:
         # Guess site from EXTERNAL_INSTANCE_URL (set for RSPs)
@@ -170,50 +168,62 @@ def get_clients(
 
     api_base = API_ENDPOINTS[site]
 
-    narrative_log = NarrativeLogClient(api_base, auth)
-    exposure_log = ExposureLogClient(api_base, auth)
-    night_report = NightReportClient(api_base, auth)
+    narrative_log = NarrativeLogClient(api_base, auth_token=token)
+    exposure_log = ExposureLogClient(api_base, auth_token=token)
+    night_report = NightReportClient(api_base, auth_token=token)
 
-    consdb_query = ConsDbFastAPI(api_base, auth)
-    consdb_tap = ConsDbTap(api_base, token=token)
+    consdb_query = ConsDbFastAPI(api_base, auth_token=token)
+    consdb_tap = ConsDbTap(api_base, auth_token=token)
 
-    # Only redirect to usdf-<database> if we are at the summit
+    # From the summit, we generally want to try USDF first for EFD
     if site == "summit":
+        efd_client = InfluxQueryClient("usdf", db_name="efd", repertoire_site=site, auth_token=token)
+        obsenv_client = InfluxQueryClient(
+            "usdf", db_name="lsst.obsenv", repertoire_site=site, auth_token=token
+        )
+        pp_client = InfluxQueryClient("usdf", db_name="lsst.prompt", repertoire_site=site, auth_token=token)
+        # Note that lsst.scimma is not yet available anywhere at USDF.
+        # too_client = InfluxQueryClient("usdf", db_name="lsst.scimma",
+        # repertoire_site=site, auth_token=token)
+        # And check that the connection is up and active
         try:
-            efd_client = InfluxQueryClient("usdf", db_name="efd", repertoire_site="usdf", auth=auth)
             efd_client.get_topics()
         except KeyError:
-            # if the request fails, the connection may not exist
-            logger.warning(f"EFD service not available from USDF. Falling back to {site}.")
-            # then use local-<database>.
-            efd_client = InfluxQueryClient(site, db_name="efd", repertoire_site=site, auth=auth)
-    else:
-        efd_client = InfluxQueryClient(site, db_name="efd", repertoire_site=site, auth=auth)
+            logger.warning("EFD service not available from USDF. Falling back to summit.")
+            efd_client = InfluxQueryClient("summit", db_name="efd", repertoire_site=site, auth_token=token)
+            obsenv_client = InfluxQueryClient(
+                "summit", db_name="lsst.obsenv", repertoire_site=site, auth_token=token
+            )
+            pp_client = InfluxQueryClient(
+                "summit", db_name="lsst.prompt", repertoire_site=site, auth_token=token
+            )
+        # Always connect to lsst.scimma at summit until available at USDF.
+        too_client = InfluxQueryClient(
+            "summit", db_name="lsst.scimma", repertoire_site=site, auth_token=token
+        )
 
-    # Connect to the databases which are not in repertoire yet
-    # Obsenv not present on usdf-dev, or summit
-    if site == "summit" or site == "usdf-dev":
-        try:
-            obsenv_client = InfluxQueryClient("usdf", db_name="lsst.obsenv", repertoire_site="usdf")
-            obsenv_client.get_topics()
-        except KeyError:
-            # if the request fails, the connection may not exist
-            logger.warning(f"ObsEnv service not available from USDF. Falling back to {site}.")
-            obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv")
-    else:
-        obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv")
+    elif site == "usdf-dev":
+        # Note that usdf-dev has EMPTY influx db tables at present, and
+        # does not have a usdf-prod repertoire entry, and we
+        # cannot cross-authenticate using a usdf token.
+        # So on usdf-dev, let's force a fallback to EFDAUTH env variable.
+        # This means EFDAUTH should point to a json file on disk.
+        efd_client = InfluxQueryClient("usdf", db_name="efd")
+        obsenv_client = InfluxQueryClient("usdf", db_name="lsst.obsenv")
+        pp_client = InfluxQueryClient("usdf", db_name="lsst.prompt")
+        too_client = None
 
-    pp_client = InfluxQueryClient(site, db_name="lsst.prompt")
-    too_client = InfluxQueryClient("summit", db_name="lsst.scimma")
+    # Anywhere else, the site is generally the one to use.
+    else:
+        efd_client = InfluxQueryClient(site, db_name="efd", repertoire_site=site, auth_token=token)
+        obsenv_client = InfluxQueryClient(site, db_name="lsst.obsenv", repertoire_site=site, auth_token=token)
+        pp_client = InfluxQueryClient(site, db_name="lsst.prompt", repertoire_site=site, auth_token=token)
+        too_client = InfluxQueryClient(site, db_name="lsst.scimma", repertoire_site=site, auth_token=token)
 
     # Be extra helpful with environment variables if using USDF for LFA
     if "usdf" in site:
-        # And some env variables for S3 through USDF
-        if os.environ.get("LSST_DISABLE_BUCKET_VALIDATION") is None:
-            os.environ["LSST_DISABLE_BUCKET_VALIDATION"] = "1"
-        if os.environ.get("S3_ENDPOINT_URL") is None:
-            os.environ["S3_ENDPOINT_URL"] = "https://s3dfrgw.slac.stanford.edu/"
-    # Or if you're actually using one of the USDF RSPs (or kubernetes)
+        usdf_s3_env()
+    # And if you're actually using one of the USDF RSPs (or kubernetes):
     if "usdf" in os.getenv("EXTERNAL_INSTANCE_URL", ""):
         if os.getenv("RUBIN_SIM_DATA_DIR") is None:
             # Use shared RUBIN_SIM_DATA_DIR
@@ -234,6 +244,23 @@ def get_clients(
     logger.info(f"Endpoint base url: {endpoints['api_base']}")
 
     return endpoints
+
+
+def close_clients(endpoints: dict) -> None:
+    for client in endpoints.values():
+        if isinstance(client, str) or client is None:
+            # Skip the api_base string
+            continue
+        client.close()
+
+
+def usdf_s3_env() -> None:
+    """Set convenient environment variables for USDF S3 use."""
+    # And some env variables for S3 through USDF
+    if os.environ.get("LSST_DISABLE_BUCKET_VALIDATION") is None:
+        os.environ["LSST_DISABLE_BUCKET_VALIDATION"] = "1"
+    if os.environ.get("S3_ENDPOINT_URL") is None:
+        os.environ["S3_ENDPOINT_URL"] = "https://s3dfrgw.slac.stanford.edu/"
 
 
 def usdf_lfa(uri: str, bucket: str = "s3://lfa@") -> str:

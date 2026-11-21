@@ -28,7 +28,7 @@ except ModuleNotFoundError:
 logger = logging.getLogger(__name__)
 
 SKIPTIME = 600.0 / 60 / 60 / 24  # a big slew in JD/days
-CAM_FWHM = 0.207  # arcseconds
+CAM_FWHM = 0.229  # arcseconds
 
 __all__ = ["add_rubin_scheduler_cols", "add_model_slew_times"]
 
@@ -155,7 +155,7 @@ def add_rubin_scheduler_cols(
 
         for col in seeing_df.columns:
             if col in visits.columns:
-                visits.drop(labels=col, axis=1, inplace=True)
+                visits = visits.drop(labels=col, axis=1)
 
         visits = visits.merge(seeing_df, right_index=True, left_index=True)
 
@@ -207,7 +207,7 @@ def add_rubin_scheduler_cols(
 
     for n in new_df.columns:
         if n in visits.columns:
-            visits.drop(labels=n, axis=1, inplace=True)
+            visits = visits.drop(labels=n, axis=1)
 
     visits = visits.merge(new_df, right_index=True, left_index=True)
     return visits
@@ -282,6 +282,7 @@ def add_model_slew_times(
         azimuth_minpos=-262,
         azimuth_maxpos=262,
     )
+    kinematic_model_ideal.setup_dome(settle_time=0)
     kinematic_model_ideal.setup_camera(**rotator_movement(100), band_changetime=120, readtime=readtime)
     kinematic_model_ideal.mount_bands(["u", "g", "r", "i", "z", "y"])
 
@@ -293,6 +294,7 @@ def add_model_slew_times(
     kinematic_model.setup_optics(cl_delay=[0, 0])
     kinematic_model.setup_camera(**rotator_movement(100), band_changetime=120, readtime=readtime)
     kinematic_model.mount_bands(["u", "g", "r", "i", "z", "y"])
+    kinematic_model.setup_dome(settle_time=0)
 
     model_slewtimes = {}  # current performance model
     model_slewtimes_ideal = {}  # ideal performance model

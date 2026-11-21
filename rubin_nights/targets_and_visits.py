@@ -74,7 +74,7 @@ def targets_and_visits(
 
     # Fetch and consolidate the nextVisits
     topic = "lsst.sal.ScriptQueue.logevent_nextVisit"
-    fields = ["scriptSalIndex", "groupId", "position0", "position1", "cameraAngle"]
+    fields = ["scriptSalIndex", "groupId", "position0", "position1", "cameraAngle", '"duration"']
     nextvisits = endpoints["efd"].select_time_series(topic, fields, t_start, t_end, index=queue_index)
     logger.debug(f"{len(nextvisits)} next visit events")
     if len(nextvisits) > 0:
@@ -143,10 +143,10 @@ def targets_and_visits(
                 columns=observations.columns.values,
                 index=t_targets.index,
             )
-            new_df.rename({"time": "time_o"}, axis=1, inplace=True)
+            new_df = new_df.rename({"time": "time_o"}, axis=1)
             new_df["time_o"] = np.nan
             t_to = pd.merge(targets, new_df, left_index=True, right_index=True, suffixes=("", "_o"))
-            t_to.reset_index("time", inplace=True)
+            t_to = t_to.reset_index("time")
         else:
             t_to = pd.merge_asof(
                 t_targets.sort_values("targetId").reset_index("time"),
@@ -158,7 +158,7 @@ def targets_and_visits(
                 allow_exact_matches=True,
                 direction="forward",
             )
-            t_to.sort_values(by="time", inplace=True)
+            t_to = t_to.sort_values(by="time")
         to.append(t_to)
     if len(to) == 0:
         # No information; make a minimal dataframe to be able to continue.
@@ -166,7 +166,7 @@ def targets_and_visits(
     else:
         to_df = pd.concat(to)
     to_df = to_df.astype({"targetId": int, "blockId": int, "skyAngle": float})
-    to_df.drop([c for c in to_df.columns if "private" in c], axis=1, inplace=True)
+    to_df = to_df.drop([c for c in to_df.columns if "private" in c], axis=1)
     logger.debug(f"Joined targets and observations for {len(to_df)} events")
 
     # If either visit or nextvisit are empty, just quit here.
@@ -191,7 +191,7 @@ def targets_and_visits(
     scriptSalIndex = np.where(np.isnan(nv["scriptSalIndex"].array), 0, nv["scriptSalIndex"].array)
     nv["scriptSalIndex"] = scriptSalIndex
     nv = nv.astype({"visit_id": int, "scriptSalIndex": int, "cameraAngle": float})
-    nv.drop([c for c in nv.columns if "private" in c], axis=1, inplace=True)
+    nv = nv.drop([c for c in nv.columns if "private" in c], axis=1)
     logger.debug(f"Joined nextvisit and visits for {len(nv)} records")
 
     # Join targets and next visit BUT blockId == salScriptId
@@ -217,14 +217,13 @@ def targets_and_visits(
         tt = np.where(np.isnan(vt[col].array), 0, vt[col].array)
         vt[col] = tt
     vt = vt.astype(dict([(col, int) for col in int_cols]))
-    vt.sort_values("time", inplace=True)
+    vt = vt.sort_values("time")
     logger.debug(f"Joined targets+observations with nextvisit+visit for {len(vt)} records")
 
     # Rename values for clarity
-    vt.rename(
+    vt = vt.rename(
         {"time_tob": "time_target", "time_o": "time_observation", "time": "time_nextvisit"},
         axis=1,
-        inplace=True,
     )
     # Some handy columns
     cols = [

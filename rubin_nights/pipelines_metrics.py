@@ -55,7 +55,7 @@ def diasource_visit_summaries(
         cols = [f"{c[0]}_{c[1]}" for c in alertsum.columns]
         alertsum = alertsum.droplevel(level=0, axis=1)
         alertsum.columns = cols
-        alertsum.rename({"detector_count": "nDiaDetectors_count"}, axis=1, inplace=True)
+        alertsum = alertsum.rename({"detector_count": "nDiaDetectors_count"}, axis=1)
     else:
         alertsum = pd.DataFrame(
             [],
@@ -82,14 +82,13 @@ def diasource_visit_summaries(
         cols = [f"{c[0]}_{c[1]}" for c in ssosum.columns]
         ssosum = ssosum.droplevel(level=0, axis=1)
         ssosum.columns = cols
-        ssosum.rename(
+        ssosum = ssosum.rename(
             {
                 "detector_count": "nSsDetectors_count",
                 "NumSsObjectsMetric_sum": "numSsObjects_sum",
                 "NumSsObjectsMetric_median": "numSsObjects_median",
             },
             axis=1,
-            inplace=True,
         )
     else:
         ssosum = pd.DataFrame([], columns=["numSsObjects_sum", "numSsObjects_median", "nSsDetectors_count"])
@@ -105,10 +104,9 @@ def diasource_visit_summaries(
     if len(asso_det) > 0:
         assosum = asso_det.groupby("visit").agg({"NumSsObjectsMetric": "sum", "detector": "count"})
         assosum.index = assosum.index.astype(int)
-        assosum.rename(
+        assosum = assosum.rename(
             {"detector": "nDSsDetectors_count", "NumSsObjectsMetric": "numDirectSsObjects_sum"},
             axis=1,
-            inplace=True,
         )
     else:
         assosum = pd.DataFrame([], columns=["numDirectSsObjects_sum", "nDSsDetectors_count"])

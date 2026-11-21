@@ -1,8 +1,10 @@
 astropy-base
-httpx
+httpx2
 matplotlib-base
 numpy
 pandas
 pyvo
+rubin-scheduler
+rubin-sim
 yaml
 lsst-ts-xml

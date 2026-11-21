@@ -32,7 +32,7 @@ are similar in speed in general, but may vary depending on exact queries.
 Fetching visits in a given timespan
 ------------------------------------
 
-The convenience method :meth:`~consdb_query.ConsDbQuery.get_visits` queries the
+The convenience method :meth:`~consdb_query.ConsDb.get_visits` queries the
 ``visit1`` and ``visit1_quicklook`` tables and returns a combined DataFrame.
 It accepts an optional ``visit_constraint`` for additional SQL filtering.
 
@@ -81,18 +81,35 @@ Common SQL pitfalls
 Async queries
 ^^^^^^^^^^^^^
 
-Both clients support asynchronous operation for long-running queries:
+Asynchronous FastAPI queries use a separate client, :class:`~consdb_query.AsyncConsDbFastAPI`,
+which is not included in the :func:`~connections.get_clients` dictionary.
+It takes the same ``api_base`` and ``auth_token`` as the synchronous client,
+and its ``query`` method must be awaited:
 
 .. code-block:: python
 
-    # TAP — submit a job and wait
+    from rubin_nights.connections import get_access_token
+    from rubin_nights.consdb_query import AsyncConsDbFastAPI
+    from rubin_nights.reference_values import API_ENDPOINTS
+
+    api_base = API_ENDPOINTS["usdf"]
+    token = get_access_token()
+
+    async with AsyncConsDbFastAPI(api_base=api_base, auth_token=token) as async_consdb:
+        visits = await async_consdb.query(query)
+
+Only the raw ``query`` method is asynchronous; use a synchronous client for the
+convenience methods such as ``get_visits``.
+
+The TAP client has no async counterpart, but long-running queries can be managed
+through the underlying ``pyvo`` TAP service, available as ``consdb_tap.tap``:
+
+.. code-block:: python
+
     job = endpoints["consdb_tap"].tap.submit_job(query)
     job.run()
     job.wait(phases=["COMPLETED", "ERROR", "ABORTED"], timeout=120)
     results = job.fetch_result().to_table().to_pandas()
-
-    # FastAPI — async method (use inside an async context)
-    results = await endpoints["consdb"].async_query(query)
 
 Adding computed columns
 ------------------------

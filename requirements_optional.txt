@@ -1,5 +1,3 @@
-rubin-scheduler >=3.18
-rubin-sim
 black
 isort
 ruff

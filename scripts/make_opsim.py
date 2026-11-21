@@ -18,12 +18,11 @@ def query_consdb_to_opsim(tokenfile: str | None = None, site: str | None = None)
         f"select v.*, q.* from  cdb_{instrument}.visit1 as v "
         f"left join cdb_{instrument}.visit1_quicklook as q "
         f"on v.visit_id = q.visit_id "
-        f"where v.img_type != 'bias' and v.img_type != 'flat' "
-        f"and v.s_ra is not NULL "
+        f"where (v.img_type = 'science' or v.img_type = 'acq') "
         f"and v.day_obs >= 20250415 "
     )
 
-    consdb_visits: pd.DataFrame = endpoints["consdb"].query(query)
+    consdb_visits = endpoints["consdb"].query(query)
     consdb_visits = endpoints["consdb"].augment_visits(consdb_visits)
     opsim = rsim.consdb_to_opsim(consdb_visits)
     return opsim
