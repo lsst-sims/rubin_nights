@@ -1,8 +1,10 @@
 import os
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 import rubin_nights.connections as connections
+from rubin_nights.logging_query import NarrativeLogClient, NightReportClient
 
 IN_CI = os.getenv("CI") == "true"
 
@@ -86,6 +88,29 @@ class TestConnections(unittest.TestCase):
         for var in env_vars:
             if current_vars[var] is not None:
                 os.environ[var] = current_vars[var]
+
+    def test_close_clients(self) -> None:
+        api_base = "https://example.test"
+        mock_client = Mock()
+        narrative_log = NarrativeLogClient(api_base, auth_token=self.expected_token)
+        night_report = NightReportClient(api_base, auth_token=self.expected_token)
+        # Mimic the structure returned by get_clients, including the
+        # api_base string and a None client (e.g. "too" at usdf-dev).
+        endpoints = {
+            "api_base": api_base,
+            "too": None,
+            "efd": mock_client,
+            "narrative_log": narrative_log,
+            "night_report": night_report,
+        }
+        # Should skip the str and None entries without raising.
+        connections.close_clients(endpoints)
+        mock_client.close.assert_called_once()
+        self.assertTrue(narrative_log.httpx_client.is_closed)
+        self.assertTrue(night_report.httpx_client.is_closed)
+        # Endpoints that are only strings or None are a no-op.
+        connections.close_clients({"api_base": api_base, "too": None})
+        connections.close_clients({})
 
 
 if __name__ == "__main__":

@@ -202,7 +202,7 @@ def get_clients(
             "summit", db_name="lsst.scimma", repertoire_site=site, auth_token=token
         )
 
-    if site == "usdf-dev":
+    elif site == "usdf-dev":
         # Note that usdf-dev has EMPTY influx db tables at present, and
         # does not have a usdf-prod repertoire entry, and we
         # cannot cross-authenticate using a usdf token.
@@ -248,7 +248,7 @@ def get_clients(
 
 def close_clients(endpoints: dict) -> None:
     for client in endpoints.values():
-        if isinstance(client, str):
+        if isinstance(client, str) or client is None:
             # Skip the api_base string
             continue
         client.close()

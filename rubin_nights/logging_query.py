@@ -530,7 +530,7 @@ class AsyncNarrativeLogClient(AsyncLoggingServiceClient, NarrativeLogBase):
         super().__init__(url=url, auth_token=auth_token, results_as_dataframe=True)
         self.url_extension = "/narrativelog/messages"
 
-    async def async_query_log(
+    async def query_log(
         self, t_start: Time, t_end: Time, user_params: dict | None = None
     ) -> pd.DataFrame:
         """Async get narrative log entries over a specified timespan.
