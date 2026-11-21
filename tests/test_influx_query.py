@@ -134,7 +134,8 @@ class TestInfluxQueryCredentials(unittest.TestCase):
         self.assertEqual(client.url, FAKE_URL)
         self.assertEqual(client.creds_from, "repertoire @ usdf")
         mock_get.assert_called_once_with(
-            f"{API_ENDPOINTS['usdf']}/repertoire/discovery/influxdb", headers={'Authorization': 'Bearer dummy_token'}
+            f"{API_ENDPOINTS['usdf']}/repertoire/discovery/influxdb",
+            headers={"Authorization": "Bearer dummy_token"},
         )
         # Influx query client set up with the url and creds from repertoire.
         self.assertEqual(mock_client.call_args.kwargs["base_url"], FAKE_URL)
@@ -147,7 +148,8 @@ class TestInfluxQueryCredentials(unittest.TestCase):
         client = InfluxQueryClient("summit", repertoire_site="usdf", auth_token=REPERTOIRE_AUTH)
 
         mock_get.assert_called_once_with(
-            f"{API_ENDPOINTS['usdf']}/repertoire/discovery/influxdb", headers={'Authorization': 'Bearer dummy_token'}
+            f"{API_ENDPOINTS['usdf']}/repertoire/discovery/influxdb",
+            headers={"Authorization": "Bearer dummy_token"},
         )
         self.assertEqual(client.url, "https://summit.test/influx")
         self.assertEqual(client.creds_from, "repertoire @ usdf")
