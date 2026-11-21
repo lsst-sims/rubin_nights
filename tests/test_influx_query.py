@@ -13,7 +13,7 @@ from rubin_nights.reference_values import API_ENDPOINTS
 
 FAKE_URL = "https://example.test/influx"
 FAKE_CREDS = (FAKE_URL, ("u", "p"))
-REPERTOIRE_AUTH = ("auth_user", "dummy_token")
+REPERTOIRE_AUTH = "dummy_token"
 
 
 class DummyResponse:
@@ -128,13 +128,13 @@ class TestInfluxQueryCredentials(unittest.TestCase):
         mock_get = mock_client.return_value.__enter__.return_value.get
         mock_get.return_value = DummyResponse(self.repertoire_payload)
 
-        client = InfluxQueryClient("usdf", db_name="efd", auth=REPERTOIRE_AUTH)
+        client = InfluxQueryClient("usdf", db_name="efd", auth_token=REPERTOIRE_AUTH)
 
         self.assertEqual(client.site, "usdf")
         self.assertEqual(client.url, FAKE_URL)
         self.assertEqual(client.creds_from, "repertoire @ usdf")
         mock_get.assert_called_once_with(
-            f"{API_ENDPOINTS['usdf']}/repertoire/discovery/influxdb", auth=REPERTOIRE_AUTH
+            f"{API_ENDPOINTS['usdf']}/repertoire/discovery/influxdb", headers={'Authorization': 'Bearer dummy_token'}
         )
         # Influx query client set up with the url and creds from repertoire.
         self.assertEqual(mock_client.call_args.kwargs["base_url"], FAKE_URL)
@@ -144,10 +144,10 @@ class TestInfluxQueryCredentials(unittest.TestCase):
         mock_get = mock_client.return_value.__enter__.return_value.get
         mock_get.return_value = DummyResponse(self.repertoire_payload)
 
-        client = InfluxQueryClient("summit", repertoire_site="usdf", auth=REPERTOIRE_AUTH)
+        client = InfluxQueryClient("summit", repertoire_site="usdf", auth_token=REPERTOIRE_AUTH)
 
         mock_get.assert_called_once_with(
-            f"{API_ENDPOINTS['usdf']}/repertoire/discovery/influxdb", auth=REPERTOIRE_AUTH
+            f"{API_ENDPOINTS['usdf']}/repertoire/discovery/influxdb", headers={'Authorization': 'Bearer dummy_token'}
         )
         self.assertEqual(client.url, "https://summit.test/influx")
         self.assertEqual(client.creds_from, "repertoire @ usdf")
@@ -157,14 +157,14 @@ class TestInfluxQueryCredentials(unittest.TestCase):
         mock_get.return_value = DummyResponse({"summit_efd": self.repertoire_payload["summit_efd"]})
 
         with self.assertRaises(ValueError):
-            InfluxQueryClient("usdf", auth=REPERTOIRE_AUTH)
+            InfluxQueryClient("usdf", auth_token=REPERTOIRE_AUTH)
 
     def test_repertoire_takes_precedence_over_file(self, mock_client) -> None:
         mock_get = mock_client.return_value.__enter__.return_value.get
         mock_get.return_value = DummyResponse(self.repertoire_payload)
         os.environ["EFDAUTH"] = str(self.auth_file)
 
-        client = InfluxQueryClient("usdf", auth=REPERTOIRE_AUTH, influx_auth_file=self.auth_file)
+        client = InfluxQueryClient("usdf", auth_token=REPERTOIRE_AUTH, influx_auth_file=self.auth_file)
 
         mock_get.assert_called_once()
         self.assertEqual(client.creds_from, "repertoire @ usdf")
@@ -226,7 +226,7 @@ class TestInfluxQueryClient(unittest.TestCase):
         mock_response.raise_for_status.return_value = None
         mock_client.return_value.get.return_value = mock_response
 
-        client = InfluxQueryClient("summit", db_name="efd", auth=REPERTOIRE_AUTH)
+        client = InfluxQueryClient("summit", db_name="efd", auth_token=REPERTOIRE_AUTH)
         result = client.query("show measurements")
 
         self.assertIsInstance(result, pd.DataFrame)
@@ -242,7 +242,7 @@ class TestInfluxQueryClient(unittest.TestCase):
     def test_query_failure_returns_empty(self, mock_client, mock_creds) -> None:
         mock_client.return_value.get.side_effect = Exception("boom")
 
-        client = InfluxQueryClient("summit", db_name="efd", auth=REPERTOIRE_AUTH)
+        client = InfluxQueryClient("summit", db_name="efd", auth_token=REPERTOIRE_AUTH)
         result = client.query('SELECT * FROM "topic"')
 
         self.assertTrue(result.empty)
@@ -250,7 +250,7 @@ class TestInfluxQueryClient(unittest.TestCase):
     @patch.object(InfluxQueryClient, "_fetch_credentials", return_value=FAKE_CREDS)
     @patch("rubin_nights.influx_query.httpx2.Client")
     def test_get_topics_caches_result(self, mock_client, mock_creds) -> None:
-        client = InfluxQueryClient("summit", db_name="efd", auth=REPERTOIRE_AUTH)
+        client = InfluxQueryClient("summit", db_name="efd", auth_token=REPERTOIRE_AUTH)
         client.query = Mock(return_value=pd.DataFrame({"name": ["m1", "m2"]}))
 
         first = client.get_topics()
@@ -263,7 +263,7 @@ class TestInfluxQueryClient(unittest.TestCase):
     @patch.object(InfluxQueryClient, "_fetch_credentials", return_value=FAKE_CREDS)
     @patch("rubin_nights.influx_query.httpx2.Client")
     def test_context_manager_closes_client(self, mock_client, mock_creds) -> None:
-        with InfluxQueryClient("summit", auth=REPERTOIRE_AUTH) as client:
+        with InfluxQueryClient("summit", auth_token=REPERTOIRE_AUTH) as client:
             self.assertIsInstance(client, InfluxQueryClient)
         mock_client.return_value.close.assert_called_once()
 
@@ -279,7 +279,7 @@ class TestAsyncInfluxQueryClient(unittest.IsolatedAsyncioTestCase):
         mock_async_client.return_value.get = AsyncMock(return_value=mock_response)
         mock_async_client.return_value.aclose = AsyncMock()
 
-        async with AsyncInfluxQueryClient("summit", auth=REPERTOIRE_AUTH) as client:
+        async with AsyncInfluxQueryClient("summit", auth_token=REPERTOIRE_AUTH) as client:
             self.assertEqual(mock_async_client.call_args.kwargs["base_url"], FAKE_URL)
             result = await client.query('SELECT * FROM "topic"')
 
